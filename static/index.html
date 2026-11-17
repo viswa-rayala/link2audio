@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube to MP3 Converter — Fast, High Quality Audio Downloader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ff1a40'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z'/></svg>">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"></path>
+          <circle cx="6" cy="18" r="3"></circle>
+          <circle cx="18" cy="16" r="3"></circle>
+        </svg>
+        <span>High-Fidelity 320kbps MP3</span>
+      </div>
+      <h1 class="app-title">Drop YouTube Link, <br><span class="gradient-text">Get Studio-Grade MP3</span></h1>
+      <p class="app-subtitle">Simply drag & drop or paste any YouTube share link below to extract, tag, and download high-quality audio instantly.</p>
+    </header>
+
+    <!-- Main Card -->
+    <main class="glass-card">
+      <!-- Drop Zone & Input Form -->
+      <section id="dropZone" class="drop-zone">
+        <div class="drop-zone-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
+        <h3>Drop YouTube Share Link Here</h3>
+        <p>or paste any link from YouTube, Shorts, or YouTube Music</p>
+
+        <!-- Input Bar -->
+        <div class="input-bar" onclick="event.stopPropagation()">
+          <span class="input-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </span>
+          <input 
+            type="text" 
+            id="urlInput" 
+            class="url-input" 
+            placeholder="https://youtu.be/... or https://youtube.com/watch?v=..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <div class="input-actions">
+            <button id="clearBtn" class="btn-icon clear-btn" title="Clear input" style="display: none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+            <button id="pasteBtn" class="btn-icon" title="Paste from clipboard">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+              </svg>
+              <span>Paste</span>
+            </button>
+            <button id="fetchBtn" class="btn-primary">
+              <span>Fetch</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Sample / Testing Links -->
+        <div class="samples-row" onclick="event.stopPropagation()">
+          <span>Try quick sample:</span>
+          <button class="sample-pill" data-url="https://www.youtube.com/watch?v=jNQXAC9IVRw">Classic: Me at the zoo</button>
+          <button class="sample-pill" data-url="https://youtu.be/aqz-KE-bpKQ">Big Buck Bunny</button>
+        </div>
+      </section>
+
+      <!-- Video Preview & Configuration Card (Appears after fetching) -->
+      <section id="previewCard" class="preview-card">
+        <div class="preview-grid">
+          <div class="thumb-container">
+            <img id="previewThumb" class="thumb-img" src="" alt="Video thumbnail">
+            <span id="previewDuration" class="duration-tag">00:00</span>
+          </div>
+
+          <div class="meta-details">
+            <div>
+              <div class="editable-field">
+                <label class="field-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  Song / Audio Title
+                </label>
+                <input type="text" id="editTitle" class="field-input title-input">
+              </div>
+
+              <div class="editable-field">
+                <label class="field-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  Artist / Channel
+                </label>
+                <input type="text" id="editArtist" class="field-input">
+              </div>
+            </div>
+
+            <!-- Conversion Action Bar -->
+            <button id="convertBtn" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 1.05rem;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+              </svg>
+              <span>Convert to MP3</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Conversion Options -->
+        <div class="options-bar">
+          <div class="select-group">
+            <label for="qualitySelect">Audio Bitrate / Quality</label>
+            <select id="qualitySelect" class="custom-select">
+              <option value="320" selected>320 kbps (Studio Quality • Recommended)</option>
+              <option value="256">256 kbps (High Fidelity)</option>
+              <option value="192">192 kbps (Standard MP3)</option>
+              <option value="128">128 kbps (Compact • Smaller Size)</option>
+            </select>
+          </div>
+
+          <label class="checkbox-group">
+            <input type="checkbox" id="embedCoverCheck" checked>
+            <span>Embed Thumbnail as Album Art</span>
+          </label>
+        </div>
+
+        <!-- Optional Trimmer Accordion -->
+        <div class="trim-accordion">
+          <div id="trimToggle" class="trim-header">
+            <span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+              Trim Audio Segment (Optional)
+            </span>
+            <svg id="trimArrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div id="trimContent" class="trim-body" style="display: none;">
+            <div class="trim-field">
+              <label>Start (sec):</label>
+              <input type="number" id="trimStart" placeholder="0" min="0">
+            </div>
+            <div class="trim-field">
+              <label>End (sec):</label>
+              <input type="number" id="trimEnd" placeholder="Full" min="0">
+            </div>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(Leave blank to convert full audio)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Progress Card (During conversion) -->
+      <section id="progressCard" class="progress-card">
+        <div class="progress-header">
+          <span class="progress-title">Converting Audio...</span>
+          <span id="progressPct" class="progress-percentage">0%</span>
+        </div>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-bar-fill"></div>
+        </div>
+        <p id="progressStatus" class="progress-status-text">Connecting to YouTube...</p>
+      </section>
+
+      <!-- Completed Result Card -->
+      <section id="resultCard" class="glass-card result-card">
+        <div class="success-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Conversion Successful</span>
+        </div>
+
+        <div class="result-layout">
+          <img id="resultThumb" class="result-thumb" src="" alt="Album Cover">
+          <div class="result-info">
+            <h3 id="resultTitle">Track Title</h3>
+            <p id="resultArtist">Artist Name</p>
+            <div class="result-tags">
+              <span id="resultBitrate" class="meta-pill">320 kbps</span>
+              <span id="resultSize" class="meta-pill">4.5 MB</span>
+              <span id="resultDuration" class="meta-pill">3:42</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- In-Browser Audio Player -->
+        <div class="audio-player-box">
+          <div class="player-controls">
+            <button id="playerPlayBtn" class="play-toggle-btn" title="Play / Pause preview">
+              <svg id="playIcon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <svg id="pauseIcon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                <rect x="6" y="4" width="4" height="16"></rect>
+                <rect x="14" y="4" width="4" height="16"></rect>
+              </svg>
+            </button>
+            <div class="waveform-track">
+              <input type="range" id="audioSeeker" class="audio-seekbar" value="0" min="0" max="100" step="0.1">
+              <div class="player-times">
+                <span id="audioCurrentTime">0:00</span>
+                <span id="audioTotalTime">0:00</span>
+              </div>
+            </div>
+          </div>
+          <audio id="nativeAudio" preload="none"></audio>
+        </div>
+
+        <!-- Result Action Buttons -->
+        <div class="result-actions">
+          <a id="downloadBtn" href="#" class="btn-download-big">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Download MP3</span>
+          </a>
+          <button id="copyLinkBtn" class="btn-secondary" title="Copy Direct Download Link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Copy Link</span>
+          </button>
+          <button id="convertAnotherBtn" class="btn-secondary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
+            <span>Convert Another</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Recent Conversions / Library Section -->
+    <section class="history-section">
+      <div class="history-header">
+        <h3>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Recent Conversions
+        </h3>
+        <button id="clearHistoryBtn" class="btn-icon" style="font-size: 0.8rem;">Clear All</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <!-- Rendered dynamically -->
+        <div class="empty-history">No converted songs yet in this session. Drop a YouTube link above!</div>
+      </div>
+    </section>
+
+    <!-- Features / Supported Links Section -->
+    <section class="features-section">
+      <div class="features-grid">
+        <div class="feature-box">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+          </div>
+          <h4>Studio 320 kbps MP3</h4>
+          <p>Converts YouTube audio directly to maximum bitrate MP3 with clean dynamics and zero loss in fidelity.</p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          </div>
+          <h4>ID3 Tags & Cover Art</h4>
+          <p>Automatically tags MP3 with song title, artist/channel name, and embeds HD album artwork into the file.</p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </div>
+          <h4>All YouTube Links</h4>
+          <p>Supports youtu.be share links, standard youtube.com URLs, YouTube Shorts, and YouTube Music links.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Toast Notifications Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,550 @@
+// YouTube to MP3 Converter Frontend Logic
+
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM Elements
+  const dropZone = document.getElementById('dropZone');
+  const urlInput = document.getElementById('urlInput');
+  const clearBtn = document.getElementById('clearBtn');
+  const pasteBtn = document.getElementById('pasteBtn');
+  const fetchBtn = document.getElementById('fetchBtn');
+  
+  const previewCard = document.getElementById('previewCard');
+  const previewThumb = document.getElementById('previewThumb');
+  const previewDuration = document.getElementById('previewDuration');
+  const editTitle = document.getElementById('editTitle');
+  const editArtist = document.getElementById('editArtist');
+  const qualitySelect = document.getElementById('qualitySelect');
+  const embedCoverCheck = document.getElementById('embedCoverCheck');
+  const convertBtn = document.getElementById('convertBtn');
+  
+  const trimToggle = document.getElementById('trimToggle');
+  const trimContent = document.getElementById('trimContent');
+  const trimArrow = document.getElementById('trimArrow');
+  const trimStart = document.getElementById('trimStart');
+  const trimEnd = document.getElementById('trimEnd');
+
+  const progressCard = document.getElementById('progressCard');
+  const progressPct = document.getElementById('progressPct');
+  const progressBar = document.getElementById('progressBar');
+  const progressStatus = document.getElementById('progressStatus');
+
+  const resultCard = document.getElementById('resultCard');
+  const resultThumb = document.getElementById('resultThumb');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultArtist = document.getElementById('resultArtist');
+  const resultBitrate = document.getElementById('resultBitrate');
+  const resultSize = document.getElementById('resultSize');
+  const resultDuration = document.getElementById('resultDuration');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const copyLinkBtn = document.getElementById('copyLinkBtn');
+  const convertAnotherBtn = document.getElementById('convertAnotherBtn');
+
+  // Audio Player Elements
+  const nativeAudio = document.getElementById('nativeAudio');
+  const playerPlayBtn = document.getElementById('playerPlayBtn');
+  const playIcon = document.getElementById('playIcon');
+  const pauseIcon = document.getElementById('pauseIcon');
+  const audioSeeker = document.getElementById('audioSeeker');
+  const audioCurrentTime = document.getElementById('audioCurrentTime');
+  const audioTotalTime = document.getElementById('audioTotalTime');
+
+  // History & Toasts
+  const historyList = document.getElementById('historyList');
+  const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  const toastContainer = document.getElementById('toastContainer');
+
+  let currentVideoData = null;
+  let activePollInterval = null;
+  let activeJobId = null;
+
+  // --- Utility Functions ---
+
+  function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    let iconSvg = '';
+    if (type === 'error') {
+      iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+    } else if (type === 'success') {
+      iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    } else {
+      iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+    }
+
+    toast.innerHTML = `${iconSvg}<span>${escapeHtml(message)}</span>`;
+    toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(20px)';
+      toast.style.transition = 'all 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, 4500);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, m => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[m]);
+  }
+
+  function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  function isYouTubeUrl(url) {
+    if (!url) return false;
+    const regExp = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+    return regExp.test(url.trim());
+  }
+
+  // --- Drag and Drop Handling ---
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    window.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-active');
+    }, false);
+  });
+
+  ['dragleave', 'dragend'].forEach(eventName => {
+    window.addEventListener(eventName, (e) => {
+      if (!e.relatedTarget || e.relatedTarget.nodeName === 'HTML') {
+        dropZone.classList.remove('drag-active');
+      }
+    }, false);
+  });
+
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-active');
+
+    let droppedText = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    if (droppedText) {
+      handleUrlInput(droppedText.trim());
+    }
+  }, false);
+
+  dropZone.addEventListener('click', () => {
+    urlInput.focus();
+  });
+
+  // --- Input Handling & Sample Links ---
+
+  urlInput.addEventListener('input', () => {
+    const val = urlInput.value.trim();
+    clearBtn.style.display = val ? 'flex' : 'none';
+    if (isYouTubeUrl(val)) {
+      fetchVideoInfo(val);
+    }
+  });
+
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = urlInput.value.trim();
+      if (val) fetchVideoInfo(val);
+    }
+  });
+
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    urlInput.value = '';
+    clearBtn.style.display = 'none';
+    urlInput.focus();
+  });
+
+  pasteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        handleUrlInput(text.trim());
+      } else {
+        showToast('Clipboard is empty', 'error');
+      }
+    } catch (err) {
+      showToast('Clipboard access denied. Please paste manually.', 'error');
+      urlInput.focus();
+    }
+  });
+
+  fetchBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const val = urlInput.value.trim();
+    if (val) {
+      fetchVideoInfo(val);
+    } else {
+      showToast('Please enter or drop a YouTube link', 'error');
+    }
+  });
+
+  document.querySelectorAll('.sample-pill').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sampleUrl = btn.getAttribute('data-url');
+      handleUrlInput(sampleUrl);
+    });
+  });
+
+  function handleUrlInput(url) {
+    urlInput.value = url;
+    clearBtn.style.display = 'flex';
+    fetchVideoInfo(url);
+  }
+
+  // --- Trimmer Accordion ---
+
+  trimToggle.addEventListener('click', () => {
+    const isClosed = trimContent.style.display === 'none';
+    trimContent.style.display = isClosed ? 'flex' : 'none';
+    trimArrow.style.transform = isClosed ? 'rotate(180deg)' : 'rotate(0deg)';
+  });
+
+  // --- API: Fetch Video Info ---
+
+  async function fetchVideoInfo(url) {
+    if (!isYouTubeUrl(url)) {
+      showToast('Please provide a valid YouTube URL (e.g. youtu.be or youtube.com)', 'error');
+      return;
+    }
+
+    // Set loading UI
+    fetchBtn.disabled = true;
+    fetchBtn.innerHTML = `<span>Fetching...</span>`;
+    previewCard.style.display = 'none';
+    progressCard.style.display = 'none';
+    resultCard.style.display = 'none';
+    pauseAudio();
+
+    try {
+      const resp = await fetch('/api/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.detail || 'Failed to fetch video information');
+      }
+
+      currentVideoData = data.data;
+
+      // Populate preview card
+      previewThumb.src = currentVideoData.thumbnail || '';
+      previewDuration.textContent = currentVideoData.duration_formatted || '00:00';
+      editTitle.value = currentVideoData.title || '';
+      editArtist.value = currentVideoData.author || '';
+
+      if (currentVideoData.duration) {
+        trimEnd.max = currentVideoData.duration;
+      }
+
+      previewCard.style.display = 'block';
+      previewCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      showToast('Video details loaded! Ready to convert.', 'success');
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      fetchBtn.disabled = false;
+      fetchBtn.innerHTML = `
+        <span>Fetch</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+          <polyline points="12 5 19 12 12 19"></polyline>
+        </svg>
+      `;
+    }
+  }
+
+  // --- API: Convert to MP3 ---
+
+  convertBtn.addEventListener('click', async () => {
+    if (!currentVideoData) return;
+
+    const payload = {
+      url: currentVideoData.url,
+      quality: qualitySelect.value,
+      title: editTitle.value.trim(),
+      artist: editArtist.value.trim(),
+      embed_thumbnail: embedCoverCheck.checked,
+      trim_start: trimStart.value ? parseFloat(trimStart.value) : null,
+      trim_end: trimEnd.value ? parseFloat(trimEnd.value) : null
+    };
+
+    // UI State for Conversion
+    previewCard.style.display = 'none';
+    resultCard.style.display = 'none';
+    progressCard.style.display = 'block';
+    progressPct.textContent = '0%';
+    progressBar.style.width = '0%';
+    progressStatus.textContent = 'Initializing converter...';
+    progressCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    try {
+      const resp = await fetch('/api/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const res = await resp.json();
+      if (!resp.ok) {
+        throw new Error(res.detail || 'Failed to start conversion');
+      }
+
+      activeJobId = res.job_id;
+      pollJobProgress(activeJobId);
+
+    } catch (err) {
+      showToast(err.message, 'error');
+      progressCard.style.display = 'none';
+      previewCard.style.display = 'block';
+    }
+  });
+
+  function pollJobProgress(jobId) {
+    if (activePollInterval) clearInterval(activePollInterval);
+
+    activePollInterval = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/progress/${jobId}`);
+        if (!resp.ok) {
+          clearInterval(activePollInterval);
+          throw new Error('Conversion job timed out or failed to track.');
+        }
+
+        const job = await resp.json();
+
+        // Update progress UI
+        const pct = job.progress || 0;
+        progressPct.textContent = `${pct}%`;
+        progressBar.style.width = `${pct}%`;
+        progressStatus.textContent = job.status_text || 'Processing audio stream...';
+
+        if (job.status === 'completed') {
+          clearInterval(activePollInterval);
+          onConversionComplete(job);
+        } else if (job.status === 'error') {
+          clearInterval(activePollInterval);
+          progressCard.style.display = 'none';
+          previewCard.style.display = 'block';
+          showToast(`Conversion failed: ${job.error || 'Unknown error'}`, 'error');
+        }
+      } catch (err) {
+        clearInterval(activePollInterval);
+        progressCard.style.display = 'none';
+        previewCard.style.display = 'block';
+        showToast(err.message, 'error');
+      }
+    }, 700);
+  }
+
+  function onConversionComplete(job) {
+    progressCard.style.display = 'none';
+    resultCard.style.display = 'block';
+    resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Populate result card
+    resultThumb.src = job.thumbnail || currentVideoData?.thumbnail || '';
+    resultTitle.textContent = job.title;
+    resultArtist.textContent = job.artist || 'Unknown Artist';
+    resultBitrate.textContent = job.quality || '320 kbps';
+    resultSize.textContent = job.file_size_formatted || 'Audio File';
+    resultDuration.textContent = job.duration_formatted || '';
+
+    // Setup download button
+    const downloadUrl = `/api/download/${job.id}`;
+    downloadBtn.href = downloadUrl;
+    downloadBtn.setAttribute('download', job.filename || `${job.title}.mp3`);
+
+    // Setup Audio Player
+    const streamUrl = `/api/stream/${job.id}`;
+    nativeAudio.src = streamUrl;
+    nativeAudio.load();
+    resetAudioPlayer();
+
+    // Setup Copy Link
+    copyLinkBtn.onclick = () => {
+      const fullUrl = `${window.location.origin}${downloadUrl}`;
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        showToast('Direct download link copied to clipboard!', 'success');
+      });
+    };
+
+    showToast('Conversion ready! Click Download MP3 or play preview below.', 'success');
+    loadHistory();
+  }
+
+  // --- Audio Preview Player Logic ---
+
+  function resetAudioPlayer() {
+    pauseAudio();
+    audioSeeker.value = 0;
+    audioCurrentTime.textContent = '0:00';
+    audioTotalTime.textContent = '0:00';
+  }
+
+  function playAudio() {
+    nativeAudio.play().then(() => {
+      playIcon.style.display = 'none';
+      pauseIcon.style.display = 'block';
+    }).catch(err => {
+      console.warn('Playback error:', err);
+    });
+  }
+
+  function pauseAudio() {
+    nativeAudio.pause();
+    playIcon.style.display = 'block';
+    pauseIcon.style.display = 'none';
+  }
+
+  playerPlayBtn.addEventListener('click', () => {
+    if (nativeAudio.paused) {
+      playAudio();
+    } else {
+      pauseAudio();
+    }
+  });
+
+  nativeAudio.addEventListener('loadedmetadata', () => {
+    audioTotalTime.textContent = formatTime(nativeAudio.duration);
+  });
+
+  nativeAudio.addEventListener('timeupdate', () => {
+    if (!isNaN(nativeAudio.duration) && nativeAudio.duration > 0) {
+      const pct = (nativeAudio.currentTime / nativeAudio.duration) * 100;
+      audioSeeker.value = pct;
+      audioCurrentTime.textContent = formatTime(nativeAudio.currentTime);
+    }
+  });
+
+  nativeAudio.addEventListener('ended', () => {
+    pauseAudio();
+    audioSeeker.value = 0;
+    audioCurrentTime.textContent = '0:00';
+  });
+
+  audioSeeker.addEventListener('input', () => {
+    if (!isNaN(nativeAudio.duration) && nativeAudio.duration > 0) {
+      const seekTo = (audioSeeker.value / 100) * nativeAudio.duration;
+      nativeAudio.currentTime = seekTo;
+    }
+  });
+
+  // --- Convert Another Video ---
+
+  convertAnotherBtn.addEventListener('click', () => {
+    pauseAudio();
+    resultCard.style.display = 'none';
+    previewCard.style.display = 'none';
+    progressCard.style.display = 'none';
+    urlInput.value = '';
+    clearBtn.style.display = 'none';
+    currentVideoData = null;
+    activeJobId = null;
+    dropZone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    urlInput.focus();
+  });
+
+  // --- History Management ---
+
+  async function loadHistory() {
+    try {
+      const resp = await fetch('/api/history');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderHistory(data.history || []);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    }
+  }
+
+  function renderHistory(items) {
+    if (!items || items.length === 0) {
+      historyList.innerHTML = `<div class="empty-history">No converted songs yet in this session. Drop a YouTube link above!</div>`;
+      return;
+    }
+
+    historyList.innerHTML = items.map(item => `
+      <div class="history-item">
+        <img class="history-thumb" src="${escapeHtml(item.thumbnail)}" alt="Cover" onerror="this.src='data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'52\' height=\'52\' fill=\'%23333\'><rect width=\'52\' height=\'52\'/></svg>'">
+        <div class="history-details">
+          <div class="history-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+          <div class="history-sub">
+            <span>${escapeHtml(item.artist || 'YouTube')}</span>
+            <span>•</span>
+            <span>${escapeHtml(item.file_size_formatted || '')}</span>
+            <span>•</span>
+            <span>${escapeHtml(item.quality || '320 kbps')}</span>
+          </div>
+        </div>
+        <div class="history-actions">
+          <button class="btn-icon history-play-btn" data-id="${item.id}" title="Preview audio">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          </button>
+          <a href="/api/download/${item.id}" download="${escapeHtml(item.filename || 'audio.mp3')}" class="btn-icon" title="Download MP3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </a>
+          <button class="btn-icon history-del-btn" data-id="${item.id}" title="Delete file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    // Attach listeners for history action buttons
+    document.querySelectorAll('.history-play-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        nativeAudio.src = `/api/stream/${id}`;
+        playAudio();
+        showToast('Playing preview from library', 'info');
+      });
+    });
+
+    document.querySelectorAll('.history-del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        try {
+          await fetch(`/api/history/${id}`, { method: 'DELETE' });
+          loadHistory();
+          showToast('Removed from history', 'info');
+        } catch (err) {
+          showToast('Failed to delete history item', 'error');
+        }
+      });
+    });
+  }
+
+  clearHistoryBtn.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/history');
+      if (resp.ok) {
+        const data = await resp.json();
+        for (const item of (data.history || [])) {
+          await fetch(`/api/history/${item.id}`, { method: 'DELETE' });
+        }
+        loadHistory();
+        showToast('All conversion history cleared', 'info');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  // Initial load
+  loadHistory();
+});
