@@ -101,10 +101,15 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
-  function isYouTubeUrl(url) {
-    if (!url) return false;
+  function extractVideoId(url) {
+    if (!url) return null;
     const regExp = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
-    return regExp.test(url.trim());
+    const match = url.trim().match(regExp);
+    return match ? match[1] : null;
+  }
+
+  function isYouTubeUrl(url) {
+    return !!extractVideoId(url);
   }
 
   // --- Drag and Drop Handling ---
@@ -212,39 +217,86 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- API: Fetch Video Info ---
 
   async function fetchVideoInfo(url) {
-    if (!isYouTubeUrl(url)) {
+    const videoId = extractVideoId(url);
+    if (!videoId) {
       showToast('Please provide a valid YouTube URL (e.g. youtu.be or youtube.com)', 'error');
       return;
     }
 
-    // Set loading UI
+    // Set loading UI with animated spinner
     fetchBtn.disabled = true;
-    fetchBtn.innerHTML = `<span>Fetching...</span>`;
+    fetchBtn.innerHTML = `
+      <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25"></circle>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-linecap="round"></path>
+      </svg>
+      <span>Fetching...</span>
+    `;
     previewCard.style.display = 'none';
     progressCard.style.display = 'none';
     resultCard.style.display = 'none';
     pauseAudio();
 
     try {
-      const resp = await fetch('/api/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
+      // 1. Try Backend API with 6-second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      const data = await resp.json();
+      let fetchedData = null;
 
-      if (!resp.ok) {
-        throw new Error(data.detail || 'Failed to fetch video information');
+      try {
+        const resp = await fetch('/api/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+          const res = await resp.json();
+          if (res.success && res.data) {
+            fetchedData = res.data;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend /api/info busy or unreachable, trying direct lookup...', backendErr);
       }
 
-      currentVideoData = data.data;
+      // 2. Direct browser-side YouTube oEmbed fallback if backend was busy
+      if (!fetchedData) {
+        try {
+          const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+          const oResp = await fetch(oembedUrl);
+          if (oResp.ok) {
+            const oData = await oResp.json();
+            fetchedData = {
+              id: videoId,
+              url: `https://www.youtube.com/watch?v=${videoId}`,
+              title: oData.title || 'YouTube Audio',
+              author: oData.author_name || 'YouTube Creator',
+              duration: null,
+              duration_formatted: 'Ready to convert',
+              thumbnail: oData.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              view_count: 0
+            };
+          }
+        } catch (oErr) {
+          console.warn('Direct oembed fallback note:', oErr);
+        }
+      }
+
+      if (!fetchedData) {
+        throw new Error('Could not fetch video details. Please ensure the backend server is running.');
+      }
+
+      currentVideoData = fetchedData;
 
       // Populate preview card
-      previewThumb.src = currentVideoData.thumbnail || '';
-      previewDuration.textContent = currentVideoData.duration_formatted || '00:00';
-      editTitle.value = currentVideoData.title || '';
-      editArtist.value = currentVideoData.author || '';
+      previewThumb.src = currentVideoData.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      previewDuration.textContent = currentVideoData.duration_formatted || 'Ready';
+      editTitle.value = currentVideoData.title || 'YouTube Audio';
+      editArtist.value = currentVideoData.author || 'YouTube';
 
       if (currentVideoData.duration) {
         trimEnd.max = currentVideoData.duration;

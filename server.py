@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import json
 import uuid
 import shutil
 import tempfile
@@ -45,15 +46,40 @@ executor = ThreadPoolExecutor(max_workers=4)
 # In-memory storage for active and recent jobs
 jobs: Dict[str, Dict[str, Any]] = {}
 
+def extract_video_id(url: str) -> Optional[str]:
+    """Extract 11-char video ID from any YouTube URL format."""
+    pattern = r'(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+    match = re.search(pattern, url.strip())
+    return match.group(1) if match else None
+
 def clean_youtube_url(url: str) -> str:
     """Extract and normalize canonical YouTube video URL from various formats."""
-    url = url.strip()
-    pattern = r'(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
-    match = re.search(pattern, url)
-    if match:
-        video_id = match.group(1)
+    video_id = extract_video_id(url)
+    if video_id:
         return f"https://www.youtube.com/watch?v={video_id}"
-    return url
+    return url.strip()
+
+def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
+    """Instant lookup via YouTube's public oEmbed API (<200ms response time)."""
+    try:
+        oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            hq_thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+            return {
+                "id": video_id,
+                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "title": data.get("title", "YouTube Audio"),
+                "author": data.get("author_name", "YouTube Channel"),
+                "duration": None,
+                "duration_formatted": "Ready to convert",
+                "thumbnail": data.get("thumbnail_url") or hq_thumb,
+                "view_count": 0
+            }
+    except Exception as e:
+        print(f"Fast oEmbed lookup note: {e}")
+        return None
 
 def sanitize_filename(name: str) -> str:
     """Sanitize string for safe filesystem usage and HTTP headers."""
@@ -101,20 +127,26 @@ class ConvertRequest(BaseModel):
 
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
-    """Fetch video metadata without downloading the full audio."""
+    """Fetch video metadata with fast oEmbed lookup and yt-dlp fallback."""
     clean_url = clean_youtube_url(req.url)
+    video_id = extract_video_id(clean_url)
     
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL. Please provide a valid YouTube link.")
+
+    # 1. Ultra-fast path: YouTube public oEmbed API (~150ms)
+    fast_info = fetch_fast_video_info(video_id)
+    if fast_info:
+        return {"success": True, "data": fast_info}
+    
+    # 2. Fallback: yt-dlp
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
+        'socket_timeout': 5,
+        'extractor_args': {'youtube': {'player_client': ['android']}},
     }
-    
-    # Check if node or another js runtime is available
-    if shutil.which("node"):
-        ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
-        ydl_opts['remote_components'] = ['ejs:github']
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -125,8 +157,7 @@ def get_video_info(req: InfoRequest):
             title = info.get('title') or "Unknown Title"
             author = info.get('uploader') or info.get('channel') or "Unknown Artist"
             duration = info.get('duration')
-            thumbnail = info.get('thumbnail') or ""
-            video_id = info.get('id') or ""
+            thumbnail = info.get('thumbnail') or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
             view_count = info.get('view_count') or 0
             
             return {
@@ -187,7 +218,8 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': raw_output,
-        'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
+        'socket_timeout': 30,
+        'extractor_args': {'youtube': {'player_client': ['android']}},
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
