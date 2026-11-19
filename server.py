@@ -3,6 +3,7 @@ import re
 import time
 import uuid
 import shutil
+import tempfile
 import urllib.request
 import asyncio
 from pathlib import Path
@@ -13,6 +14,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 
 import yt_dlp
@@ -21,10 +23,11 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC
 
 BASE_DIR = Path(__file__).resolve().parent
-DOWNLOADS_DIR = BASE_DIR / "downloads"
 STATIC_DIR = BASE_DIR / "static"
 
-DOWNLOADS_DIR.mkdir(exist_ok=True)
+# Use system ephemeral temp directory so files are NEVER stored on user local repo storage
+TEMP_DIR = Path(tempfile.gettempdir()) / "yt_mp3_converter_temp"
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="YouTube to MP3 Converter API", version="1.0.0")
@@ -37,21 +40,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-executor = ThreadPoolExecutor(max_workers=3)
+executor = ThreadPoolExecutor(max_workers=4)
 
-# In-memory storage for jobs
+# In-memory storage for active and recent jobs
 jobs: Dict[str, Dict[str, Any]] = {}
 
 def clean_youtube_url(url: str) -> str:
     """Extract and normalize canonical YouTube video URL from various formats."""
     url = url.strip()
-    # Supports:
-    # - https://www.youtube.com/watch?v=VIDEO_ID
-    # - https://youtu.be/VIDEO_ID
-    # - https://www.youtube.com/shorts/VIDEO_ID
-    # - https://m.youtube.com/watch?v=VIDEO_ID
-    # - https://music.youtube.com/watch?v=VIDEO_ID
-    # - https://www.youtube.com/embed/VIDEO_ID
     pattern = r'(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
     match = re.search(pattern, url)
     if match:
@@ -75,6 +71,21 @@ def format_duration(seconds: Optional[int]) -> str:
     if h > 0:
         return f"{h}:{m:02d}:{s:02d}"
     return f"{m}:{s:02d}"
+
+def purge_file(path: Optional[str], job_id: Optional[str] = None):
+    """Safely remove a file and update job state."""
+    if not path:
+        return
+    try:
+        p = Path(path)
+        if p.exists():
+            p.unlink(missing_ok=True)
+            print(f"Ephemeral cleanup: removed {path}")
+    except Exception as e:
+        print(f"Error purging file {path}: {e}")
+    
+    if job_id and job_id in jobs:
+        jobs[job_id]['file_path'] = None
 
 class InfoRequest(BaseModel):
     url: str
@@ -100,13 +111,17 @@ def get_video_info(req: InfoRequest):
         'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
     }
     
+    # Check if node or another js runtime is available
+    if shutil.which("node"):
+        ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
+        ydl_opts['remote_components'] = ['ejs:github']
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(clean_url, download=False)
             if not info:
                 raise HTTPException(status_code=400, detail="Could not extract video metadata.")
             
-            # Extract relevant fields
             title = info.get('title') or "Unknown Title"
             author = info.get('uploader') or info.get('channel') or "Unknown Artist"
             duration = info.get('duration')
@@ -134,14 +149,14 @@ def get_video_info(req: InfoRequest):
         raise HTTPException(status_code=400, detail=f"Failed to fetch video details: {error_msg}")
 
 def run_conversion_job(job_id: str, req: ConvertRequest):
-    """Worker task that downloads audio, converts to MP3, and embeds metadata."""
+    """Worker task that downloads audio into ephemeral temp storage, converts to MP3, and embeds metadata."""
     job = jobs[job_id]
     job['status'] = 'downloading'
     job['progress'] = 10
     job['status_text'] = 'Connecting to YouTube...'
 
     clean_url = clean_youtube_url(req.url)
-    out_base = str(DOWNLOADS_DIR / job_id)
+    out_base = str(TEMP_DIR / job_id)
     raw_output = f"{out_base}.%(ext)s"
 
     def progress_hook(d):
@@ -182,6 +197,10 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         'quiet': True,
         'no_warnings': True,
     }
+
+    if shutil.which("node"):
+        ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
+        ydl_opts['remote_components'] = ['ejs:github']
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -245,7 +264,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                         audio.tags.add(APIC(
                             encoding=3,
                             mime=mime,
-                            type=3, # front cover
+                            type=3,
                             desc='Cover',
                             data=img_data
                         ))
@@ -275,6 +294,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         job['duration_formatted'] = format_duration(duration)
         job['thumbnail'] = thumbnail_url
         job['quality'] = f"{quality} kbps"
+        job['expires_at'] = time.time() + 300 # 5 minutes ephemeral lifespan
 
     except Exception as e:
         job['status'] = 'error'
@@ -338,7 +358,7 @@ def stream_audio(job_id: str):
     
     file_path = jobs[job_id].get('file_path')
     if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File on disk not found")
+        raise HTTPException(status_code=404, detail="File on disk has been purged")
     
     return FileResponse(
         path=file_path,
@@ -348,20 +368,24 @@ def stream_audio(job_id: str):
 
 @app.api_route("/api/download/{job_id}", methods=["GET", "HEAD"])
 def download_audio(job_id: str):
-    """Download converted MP3 file with proper filename header."""
+    """
+    Download converted MP3 file.
+    Ephemeral policy: The file is instantly deleted from disk as soon as streaming finishes!
+    """
     if job_id not in jobs or jobs[job_id]['status'] != 'completed':
-        raise HTTPException(status_code=404, detail="File not ready or job not found")
+        raise HTTPException(status_code=404, detail="File not ready or expired")
     
     job = jobs[job_id]
     file_path = job.get('file_path')
     if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File does not exist on disk")
+        raise HTTPException(status_code=404, detail="File already downloaded and purged from server memory.")
     
     filename = job.get('filename') or "audio.mp3"
-    
-    # URL encode filename for Content-Disposition header
     from urllib.parse import quote
     encoded_filename = quote(filename)
+    
+    # BackgroundTask executes automatically the moment the response transfer finishes
+    cleanup_task = BackgroundTask(purge_file, file_path, job_id)
     
     return FileResponse(
         path=file_path,
@@ -369,12 +393,13 @@ def download_audio(job_id: str):
         filename=filename,
         headers={
             "Content-Disposition": f"attachment; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
-        }
+        },
+        background=cleanup_task
     )
 
 @app.get("/api/history")
 def get_conversion_history():
-    """Retrieve list of completed conversion jobs."""
+    """Retrieve list of recent conversion jobs."""
     completed = [
         {
             "id": j['id'],
@@ -385,42 +410,45 @@ def get_conversion_history():
             "file_size_formatted": j.get('file_size_formatted'),
             "quality": j.get('quality'),
             "created_at": j.get('created_at'),
-            "filename": j.get('filename')
+            "filename": j.get('filename'),
+            "is_available": bool(j.get('file_path') and os.path.exists(j.get('file_path')))
         }
         for j in jobs.values()
-        if j['status'] == 'completed' and j.get('file_path') and os.path.exists(j.get('file_path'))
+        if j['status'] == 'completed'
     ]
-    # Sort newest first
     completed.sort(key=lambda x: x.get('created_at', 0), reverse=True)
     return {"success": True, "history": completed[:15]}
 
 @app.delete("/api/history/{job_id}")
 def delete_conversion(job_id: str):
-    """Delete a conversion job and remove its MP3 file."""
+    """Explicitly purge a file and its job."""
     if job_id in jobs:
         file_path = jobs[job_id].get('file_path')
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        purge_file(file_path, job_id)
         del jobs[job_id]
-        return {"success": True, "message": "Conversion deleted"}
+        return {"success": True, "message": "Conversion deleted and purged"}
     raise HTTPException(status_code=404, detail="Job not found")
 
-# Periodic cleanup task for old files (files > 2 hours)
-def cleanup_old_files():
-    cutoff = time.time() - (2 * 3600)
-    for f in DOWNLOADS_DIR.glob("*.mp3"):
+# Ephemeral Garbage Collector: Purges any files in temp older than 5 minutes
+def ephemeral_cleanup_worker():
+    now = time.time()
+    for f in TEMP_DIR.glob("*.mp3"):
         try:
-            if f.stat().st_mtime < cutoff:
+            if now - f.stat().st_mtime > 300: # 5 minutes old
                 f.unlink(missing_ok=True)
+                print(f"Expired file removed: {f.name}")
         except Exception:
             pass
 
 @app.on_event("startup")
 async def startup_event():
-    cleanup_old_files()
+    ephemeral_cleanup_worker()
+    # Schedule background cleanup loop every 60 seconds
+    async def periodic_sweeper():
+        while True:
+            await asyncio.sleep(60)
+            ephemeral_cleanup_worker()
+    asyncio.create_task(periodic_sweeper())
 
 # Serve static frontend files
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -431,5 +459,6 @@ def serve_index():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting YouTube to MP3 Converter server on http://localhost:8000 ...")
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    print(f"Starting YouTube to MP3 Converter on http://0.0.0.0:{port} ...")
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
