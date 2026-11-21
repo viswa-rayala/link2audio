@@ -82,16 +82,44 @@ def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 def get_cookiefile_path() -> Optional[str]:
-    """Retrieve cookies if configured via environment or local file."""
+    """Retrieve cookies if configured via environment, temp session, or local file."""
+    temp_cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+    
+    # 1. Environment variable YOUTUBE_COOKIES
     raw_cookies = os.environ.get("YOUTUBE_COOKIES") or os.environ.get("COOKIES")
     if raw_cookies and raw_cookies.strip():
-        cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
-        cookie_path.write_text(raw_cookies.strip(), encoding="utf-8")
-        return str(cookie_path)
+        temp_cookie_path.write_text(raw_cookies.strip(), encoding="utf-8")
+        return str(temp_cookie_path)
+    
+    # 2. Saved cookies in temp
+    if temp_cookie_path.exists() and temp_cookie_path.stat().st_size > 10:
+        return str(temp_cookie_path)
+
+    # 3. Local cookies.txt in workspace root
     local_cookie = BASE_DIR / "cookies.txt"
-    if local_cookie.exists():
+    if local_cookie.exists() and local_cookie.stat().st_size > 10:
         return str(local_cookie)
+        
     return None
+
+class CookiePayload(BaseModel):
+    cookies: str
+
+@app.post("/api/cookies")
+def save_cookies(payload: CookiePayload):
+    """Save YouTube session cookies to bypass datacenter bot verification."""
+    data = payload.cookies.strip()
+    if not data:
+        raise HTTPException(status_code=400, detail="Cookie data is empty")
+    cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+    cookie_path.write_text(data, encoding="utf-8")
+    return {"success": True, "message": "Cookies saved and activated successfully!"}
+
+@app.get("/api/cookies/status")
+def check_cookie_status():
+    """Check if session cookies are currently active."""
+    cookie_file = get_cookiefile_path()
+    return {"active": bool(cookie_file and Path(cookie_file).exists())}
 
 def sanitize_filename(name: str) -> str:
     """Sanitize string for safe filesystem usage and HTTP headers."""
