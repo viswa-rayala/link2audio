@@ -392,7 +392,12 @@ document.addEventListener('DOMContentLoaded', () => {
           clearInterval(activePollInterval);
           progressCard.style.display = 'none';
           previewCard.style.display = 'block';
-          showToast(`Conversion failed: ${job.error || 'Unknown error'}`, 'error');
+          
+          let friendlyMsg = job.error || 'Conversion failed. Please try again.';
+          if (friendlyMsg.includes('Sign in to confirm') || friendlyMsg.includes('bot')) {
+            friendlyMsg = 'YouTube requested verification for this video. Please try another video link or retry.';
+          }
+          showToast(friendlyMsg, 'error');
         }
       } catch (err) {
         clearInterval(activePollInterval);

@@ -81,6 +81,18 @@ def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
         print(f"Fast oEmbed lookup note: {e}")
         return None
 
+def get_cookiefile_path() -> Optional[str]:
+    """Retrieve cookies if configured via environment or local file."""
+    raw_cookies = os.environ.get("YOUTUBE_COOKIES") or os.environ.get("COOKIES")
+    if raw_cookies and raw_cookies.strip():
+        cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+        cookie_path.write_text(raw_cookies.strip(), encoding="utf-8")
+        return str(cookie_path)
+    local_cookie = BASE_DIR / "cookies.txt"
+    if local_cookie.exists():
+        return str(local_cookie)
+    return None
+
 def sanitize_filename(name: str) -> str:
     """Sanitize string for safe filesystem usage and HTTP headers."""
     clean = re.sub(r'[\\/*?:"<>|]', "", name)
@@ -214,36 +226,67 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
             job['status_text'] = f'Encoding {req.quality}kbps MP3 audio with FFmpeg...'
 
     quality = req.quality if req.quality in ["128", "192", "256", "320"] else "320"
+    cookie_file = get_cookiefile_path()
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': raw_output,
-        'socket_timeout': 30,
-        'extractor_args': {'youtube': {'player_client': ['android']}},
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': quality,
-        }],
-        'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
-    }
+    # Client profiles tried in sequence to bypass YouTube bot blocks on cloud/datacenter IPs
+    client_profiles = [
+        ['tv_embedded', 'android_creator', 'android_music', 'android'],
+        ['tv_embedded'],
+        ['android_creator'],
+        ['android_music'],
+        ['android']
+    ]
 
-    if shutil.which("node"):
-        ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
-        ydl_opts['remote_components'] = ['ejs:github']
+    meta = None
+    last_err = None
+
+    for profile in client_profiles:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': raw_output,
+            'socket_timeout': 30,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': profile,
+                    'player_skip': ['web', 'mweb']
+                }
+            },
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': quality,
+            }],
+            'progress_hooks': [progress_hook],
+            'quiet': True,
+            'no_warnings': True,
+        }
+
+        if cookie_file:
+            ydl_opts['cookiefile'] = cookie_file
+
+        if shutil.which("node"):
+            ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
+            ydl_opts['remote_components'] = ['ejs:github']
+
+        try:
+            job['status_text'] = f"Connecting audio stream..."
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                meta = ydl.extract_info(clean_url, download=True)
+                if meta:
+                    break
+        except Exception as err:
+            last_err = err
+            print(f"Profile {profile} failed with: {err}")
+            continue
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            meta = ydl.extract_info(clean_url, download=True)
-            if not meta:
-                raise Exception("Failed to retrieve video stream.")
-            
-            video_title = req.title.strip() if req.title and req.title.strip() else (meta.get('title') or "Audio")
-            video_artist = req.artist.strip() if req.artist and req.artist.strip() else (meta.get('uploader') or meta.get('channel') or "YouTube")
-            thumbnail_url = meta.get('thumbnail') or ""
-            duration = meta.get('duration')
+        if not meta:
+            raise Exception(f"Download failed: {last_err or 'Could not resolve audio streams'}")
+
+        video_title = req.title.strip() if req.title and req.title.strip() else (meta.get('title') or "Audio")
+        video_artist = req.artist.strip() if req.artist and req.artist.strip() else (meta.get('uploader') or meta.get('channel') or "YouTube")
+        thumbnail_url = meta.get('thumbnail') or ""
+        duration = meta.get('duration')
 
         mp3_path = Path(f"{out_base}.mp3")
         if not mp3_path.exists():
