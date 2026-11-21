@@ -505,6 +505,32 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         job['status_text'] = f"Failed: {str(e)}"
         print(f"Error converting {clean_url}: {e}")
 
+@app.get("/api/diag")
+def run_diagnostics(v: str = "JGwWNGJdvx8"):
+    results = {}
+    try:
+        results["key"] = get_y2mate_key()
+    except Exception as e:
+        results["key_err"] = str(e)
+    
+    try:
+        key = results.get("key") or "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://y2mate.gs/",
+            "Origin": "https://y2mate.gs"
+        }
+        ctx = ssl.create_default_context()
+        now_ms = int(time.time() * 1000)
+        init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={v}&f=mp3&_={now_ms}"
+        req = urllib.request.Request(init_url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+            results["worker_resp"] = resp.read().decode("utf-8")
+    except Exception as e:
+        results["worker_err"] = f"{type(e).__name__}: {str(e)}"
+    
+    return results
+
 @app.post("/api/convert")
 def start_conversion(req: ConvertRequest):
     """Start an asynchronous conversion job."""
