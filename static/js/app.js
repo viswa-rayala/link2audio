@@ -395,8 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
           
           let friendlyMsg = job.error || 'Conversion failed. Please try again.';
           if (friendlyMsg.includes('Sign in to confirm') || friendlyMsg.includes('bot')) {
-            friendlyMsg = 'YouTube requested verification for this video on the cloud server. Click "Cloud Cookie Setup" at the top to unlock all music tracks!';
-            if (openCookieModalBtn) openCookieModalBtn.style.borderColor = 'var(--accent-red)';
+            friendlyMsg = 'Audio stream could not be loaded. Please try again in a few moments or try another link.';
           }
           showToast(friendlyMsg, 'error');
         }
@@ -602,92 +601,6 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error(err);
     }
   });
-
-  // --- Cookie Modal Handlers ---
-  const openCookieModalBtn = document.getElementById('openCookieModalBtn');
-  const closeCookieModalBtn = document.getElementById('closeCookieModalBtn');
-  const cancelCookieBtn = document.getElementById('cancelCookieBtn');
-  const cookieModal = document.getElementById('cookieModal');
-  const cookieInput = document.getElementById('cookieInput');
-  const saveCookiesBtn = document.getElementById('saveCookiesBtn');
-  const cookieStatusBadge = document.getElementById('cookieStatusBadge');
-  const cookieBtnText = document.getElementById('cookieBtnText');
-
-  async function checkCookieStatus() {
-    try {
-      const resp = await fetch('/api/cookies/status');
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.active) {
-          if (cookieStatusBadge) {
-            cookieStatusBadge.className = 'cookie-status-badge active';
-            cookieStatusBadge.innerHTML = '● YouTube Authenticated Session: Active';
-          }
-          if (cookieBtnText) cookieBtnText.textContent = 'Cookies: Active ✓';
-          if (openCookieModalBtn) openCookieModalBtn.style.color = '#34d399';
-        } else {
-          if (cookieStatusBadge) {
-            cookieStatusBadge.className = 'cookie-status-badge inactive';
-            cookieStatusBadge.innerHTML = '○ No active cookies configured';
-          }
-          if (cookieBtnText) cookieBtnText.textContent = 'Cloud Cookie Setup';
-          if (openCookieModalBtn) openCookieModalBtn.style.color = '';
-        }
-      }
-    } catch (e) {
-      console.warn('Cookie status check note:', e);
-    }
-  }
-
-  if (openCookieModalBtn && cookieModal) {
-    openCookieModalBtn.addEventListener('click', () => {
-      cookieModal.style.display = 'flex';
-      checkCookieStatus();
-    });
-  }
-
-  [closeCookieModalBtn, cancelCookieBtn].forEach(b => {
-    if (b && cookieModal) {
-      b.addEventListener('click', () => {
-        cookieModal.style.display = 'none';
-      });
-    }
-  });
-
-  if (saveCookiesBtn) {
-    saveCookiesBtn.addEventListener('click', async () => {
-      const val = cookieInput.value.trim();
-      if (!val) {
-        showToast('Please paste valid cookies.txt content', 'error');
-        return;
-      }
-      saveCookiesBtn.disabled = true;
-      saveCookiesBtn.textContent = 'Saving...';
-      try {
-        const resp = await fetch('/api/cookies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cookies: val })
-        });
-        const data = await resp.json();
-        if (resp.ok) {
-          showToast('Cookies successfully activated! All videos unlocked.', 'success');
-          cookieModal.style.display = 'none';
-          cookieInput.value = '';
-          checkCookieStatus();
-        } else {
-          throw new Error(data.detail || 'Failed to save cookies');
-        }
-      } catch (err) {
-        showToast(err.message, 'error');
-      } finally {
-        saveCookiesBtn.disabled = false;
-        saveCookiesBtn.textContent = 'Save & Activate';
-      }
-    });
-  }
-
-  checkCookieStatus();
 
   // Initial load
   loadHistory();

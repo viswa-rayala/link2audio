@@ -974,28 +974,7 @@ body {
   margin-bottom: 16px;
 }
 
-.cookie-status-badge {
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
 
-.cookie-status-badge.active {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--accent-green);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.cookie-status-badge.inactive {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
 
 .alert-banner {
   background: rgba(239, 68, 68, 0.15);

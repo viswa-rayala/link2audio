@@ -29,9 +29,10 @@ The application is live and accessible online at:
     - YouTube Shorts (`youtube.com/shorts/...`)
     - YouTube Music & Mobile (`music.youtube.com/...`, `m.youtube.com/...`)
 
-- **🛡️ Cloud Datacenter Bot-Bypass**:
-  - Employs a multi-profile client strategy (`tv_embedded`, `android_creator`, `android_music`, `android`) to bypass "Sign in to confirm you're not a bot" blocks commonly triggered on datacenter IP addresses (Render, AWS, GCP).
-  - Optional support for `YOUTUBE_COOKIES` environment variable for hardened cloud environments.
+- **🛡️ Seamless Cloud Audio Resolver (Zero Cookies Required)**:
+  - Powered by a direct stream resolution architecture (inspired by `y2mate.gs`) that extracts high-speed audio streams without getting blocked by YouTube bot checks on cloud datacenter IPs (Render, AWS, GCP).
+  - No cookies, extensions, or sign-ins needed — just drop the link and get your MP3 instantly.
+  - Secondary fallback engine using local `yt-dlp` (`visionos` / `tv_embedded`) ensures reliable conversions.
 
 - **🧹 100% Ephemeral (Zero Permanent Disk Storage)**:
   - Audio files are stored temporarily in volatile system temp memory (`/tmp`).

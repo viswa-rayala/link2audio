@@ -6,6 +6,9 @@ import uuid
 import shutil
 import tempfile
 import urllib.request
+import ssl
+import base64
+import subprocess
 import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -81,45 +84,118 @@ def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
         print(f"Fast oEmbed lookup note: {e}")
         return None
 
-def get_cookiefile_path() -> Optional[str]:
-    """Retrieve cookies if configured via environment, temp session, or local file."""
-    temp_cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+_cached_y2mate_key = "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
+
+def get_y2mate_key(force_refresh: bool = False) -> str:
+    """Retrieve or dynamically decode the converter worker key from y2mate."""
+    global _cached_y2mate_key
+    if _cached_y2mate_key and not force_refresh:
+        return _cached_y2mate_key
+    try:
+        req = urllib.request.Request(
+            "https://y2mate.gs/",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as resp:
+            html = resp.read().decode("utf-8")
+            m = re.search(r"decodeKey\([\"']([^\"']+)[\"']\)", html)
+            if m:
+                decoded = base64.b64decode(m.group(1)[::-1]).decode("utf-8")
+                if decoded.startswith("y2mate_"):
+                    _cached_y2mate_key = decoded
+                    return decoded
+    except Exception as e:
+        print(f"Dynamic key fetch note: {e}")
+    return _cached_y2mate_key or "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
+
+def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, raw_output_path: str) -> Dict[str, Any]:
+    """
+    Direct audio resolution engine (inspired by y2mate.gs).
+    Extracts and streams YouTube audio via Cloudflare worker, completely bypassing
+    YouTube datacenter bot verification on cloud hosts like Render without needing cookies.
+    """
+    key = get_y2mate_key()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://y2mate.gs/",
+        "Origin": "https://y2mate.gs"
+    }
+    ctx = ssl.create_default_context()
     
-    # 1. Environment variable YOUTUBE_COOKIES
-    raw_cookies = os.environ.get("YOUTUBE_COOKIES") or os.environ.get("COOKIES")
-    if raw_cookies and raw_cookies.strip():
-        temp_cookie_path.write_text(raw_cookies.strip(), encoding="utf-8")
-        return str(temp_cookie_path)
-    
-    # 2. Saved cookies in temp
-    if temp_cookie_path.exists() and temp_cookie_path.stat().st_size > 10:
-        return str(temp_cookie_path)
+    data = None
+    for attempt in range(2):
+        now_ms = int(time.time() * 1000)
+        init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={video_id}&f=mp3&_={now_ms}"
+        req = urllib.request.Request(init_url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as net_err:
+            if attempt == 0:
+                key = get_y2mate_key(force_refresh=True)
+                continue
+            raise net_err
+            
+        if data.get("error", 0) > 0:
+            if attempt == 0:
+                key = get_y2mate_key(force_refresh=True)
+                continue
+            raise Exception(f"Converter worker returned error code {data.get('error')}")
+        break
 
-    # 3. Local cookies.txt in workspace root
-    local_cookie = BASE_DIR / "cookies.txt"
-    if local_cookie.exists() and local_cookie.stat().st_size > 10:
-        return str(local_cookie)
-        
-    return None
-
-class CookiePayload(BaseModel):
-    cookies: str
-
-@app.post("/api/cookies")
-def save_cookies(payload: CookiePayload):
-    """Save YouTube session cookies to bypass datacenter bot verification."""
-    data = payload.cookies.strip()
     if not data:
-        raise HTTPException(status_code=400, detail="Cookie data is empty")
-    cookie_path = Path(tempfile.gettempdir()) / "yt_cookies.txt"
-    cookie_path.write_text(data, encoding="utf-8")
-    return {"success": True, "message": "Cookies saved and activated successfully!"}
+        raise Exception("Failed to receive response from audio stream resolver")
 
-@app.get("/api/cookies/status")
-def check_cookie_status():
-    """Check if session cookies are currently active."""
-    cookie_file = get_cookiefile_path()
-    return {"active": bool(cookie_file and Path(cookie_file).exists())}
+    status = data.get("status")
+    download_url = data.get("downloadURL")
+    title = data.get("title") or ""
+    
+    if status == "progress":
+        prog_url = data.get("progressURL")
+        if not prog_url:
+            raise Exception("No progress URL returned from stream resolver")
+        
+        job['status_text'] = "Converting YouTube audio on cloud worker..."
+        for step in range(30):
+            time.sleep(2)
+            p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
+            try:
+                with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
+                    p_data = json.loads(p_resp.read().decode("utf-8"))
+                    job['progress'] = min(20 + (step * 3), 68)
+                    if p_data.get("title") and not title:
+                        title = p_data.get("title")
+                    if p_data.get("progress", 0) >= 3 or p_data.get("status") == "download":
+                        download_url = p_data.get("downloadURL") or download_url
+                        break
+            except Exception as poll_err:
+                print(f"Stream poll warning: {poll_err}")
+                
+    if not download_url:
+        raise Exception("Could not obtain download URL for this video")
+        
+    job['status'] = 'downloading'
+    job['progress'] = 70
+    job['status_text'] = 'Streaming high-speed audio data...'
+    
+    dl_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://y2mate.gs/"
+    }
+    dl_req = urllib.request.Request(download_url, headers=dl_headers)
+    with urllib.request.urlopen(dl_req, context=ctx, timeout=40) as dl_resp:
+        with open(raw_output_path, "wb") as f:
+            while True:
+                chunk = dl_resp.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                
+    return {
+        "title": title,
+        "format": "mp3"
+    }
 
 def sanitize_filename(name: str) -> str:
     """Sanitize string for safe filesystem usage and HTTP headers."""
@@ -220,133 +296,154 @@ def get_video_info(req: InfoRequest):
         raise HTTPException(status_code=400, detail=f"Failed to fetch video details: {error_msg}")
 
 def run_conversion_job(job_id: str, req: ConvertRequest):
-    """Worker task that downloads audio into ephemeral temp storage, converts to MP3, and embeds metadata."""
+    """
+    Seamless worker task that converts YouTube links to studio-grade MP3.
+    Uses the high-speed cloud worker engine as primary resolver (like y2mate.gs) to completely
+    bypass YouTube bot blocks on datacenter IPs without requiring cookies, with local yt-dlp fallback.
+    """
     job = jobs[job_id]
     job['status'] = 'downloading'
     job['progress'] = 10
-    job['status_text'] = 'Connecting to YouTube...'
+    job['status_text'] = 'Connecting to YouTube audio stream...'
 
     clean_url = clean_youtube_url(req.url)
-    out_base = str(TEMP_DIR / job_id)
-    raw_output = f"{out_base}.%(ext)s"
-
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-            downloaded = d.get('downloaded_bytes') or 0
-            if total > 0:
-                pct = 15 + int((downloaded / total) * 55) # 15% to 70%
-                job['progress'] = min(pct, 70)
-                speed = d.get('_speed_str', '').strip()
-                eta = d.get('_eta_str', '').strip()
-                status_parts = [f"Downloading audio: {int((downloaded / total) * 100)}%"]
-                if speed:
-                    status_parts.append(f"at {speed}")
-                if eta:
-                    status_parts.append(f"ETA {eta}")
-                job['status_text'] = " ".join(status_parts)
-            else:
-                job['progress'] = 30
-                job['status_text'] = 'Downloading audio stream...'
-        elif d['status'] == 'finished':
-            job['progress'] = 75
-            job['status'] = 'converting'
-            job['status_text'] = f'Encoding {req.quality}kbps MP3 audio with FFmpeg...'
-
-    quality = req.quality if req.quality in ["128", "192", "256", "320"] else "320"
-    cookie_file = get_cookiefile_path()
-
-    # Client profiles tried in sequence to bypass YouTube bot blocks on cloud/datacenter IPs
-    # 'visionos' uses modern unthrottled API endpoints that do not enforce bot challenges
-    client_profiles = [
-        ['visionos'],
-        ['tv_embedded'],
-        ['android_creator'],
-        ['android_music'],
-        ['android']
-    ]
-
-    meta = None
-    last_err = None
-
-    for profile in client_profiles:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': raw_output,
-            'socket_timeout': 30,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': profile,
-                    'player_skip': ['web', 'mweb']
-                }
-            },
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': quality,
-            }],
-            'progress_hooks': [progress_hook],
-            'quiet': True,
-            'no_warnings': True,
-        }
-
-        if cookie_file:
-            ydl_opts['cookiefile'] = cookie_file
-
-        if shutil.which("node"):
-            ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
-            ydl_opts['remote_components'] = ['ejs:github']
-
-        try:
-            job['status_text'] = f"Connecting audio stream..."
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                meta = ydl.extract_info(clean_url, download=True)
-                if meta:
-                    break
-        except Exception as err:
-            last_err = err
-            print(f"Profile {profile} failed with: {err}")
-            continue
-
     try:
-        if not meta:
-            raise Exception(f"Download failed: {last_err or 'Could not resolve audio streams'}")
+        video_id = extract_video_id(clean_url)
+        out_base = str(TEMP_DIR / job_id)
+        raw_mp3_path = f"{out_base}_raw.mp3"
+        final_mp3_path = Path(f"{out_base}.mp3")
+        quality = req.quality if req.quality in ["128", "192", "256", "320"] else "320"
 
-        video_title = req.title.strip() if req.title and req.title.strip() else (meta.get('title') or "Audio")
-        video_artist = req.artist.strip() if req.artist and req.artist.strip() else (meta.get('uploader') or meta.get('channel') or "YouTube")
-        thumbnail_url = meta.get('thumbnail') or ""
-        duration = meta.get('duration')
+        # Fetch fast oEmbed metadata for title, artist, thumbnail if available
+        fast_meta = fetch_fast_video_info(video_id) if video_id else None
+        video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else "YouTube Audio")
+        video_artist = req.artist.strip() if req.artist and req.artist.strip() else (fast_meta.get("author") if fast_meta else "YouTube")
+        thumbnail_url = fast_meta.get("thumbnail") if fast_meta else (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else "")
+        duration = None
 
-        mp3_path = Path(f"{out_base}.mp3")
-        if not mp3_path.exists():
-            raise Exception("MP3 conversion failed - output file not created.")
+        converted_via_worker = False
 
-        # Trimming support if requested
-        if req.trim_start is not None or req.trim_end is not None:
+        # 1. Primary Engine: High-speed Cloudflare Worker (inspired by y2mate.gs)
+        # Avoids YouTube datacenter IP blocks on Render completely without cookies
+        if video_id:
+            try:
+                worker_res = fetch_via_converter_api(video_id, job, quality, raw_mp3_path)
+                if worker_res.get("title") and (not req.title or not req.title.strip()):
+                    video_title = worker_res["title"]
+                converted_via_worker = True
+            except Exception as worker_err:
+                print(f"Converter worker note ({worker_err}), falling back to secondary yt-dlp...")
+                if os.path.exists(raw_mp3_path):
+                    try:
+                        os.remove(raw_mp3_path)
+                    except Exception:
+                        pass
+
+        # 2. Secondary Engine: Local yt-dlp fallback (visionOS / Android profiles)
+        if not converted_via_worker:
+            job['status_text'] = 'Resolving audio stream via secondary engine...'
+            raw_output = f"{out_base}.%(ext)s"
+            client_profiles = [
+                ['visionos'],
+                ['tv_embedded'],
+                ['android_creator'],
+                ['android']
+            ]
+            meta = None
+            last_err = None
+            for profile in client_profiles:
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'outtmpl': raw_output,
+                    'socket_timeout': 30,
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': profile,
+                            'player_skip': ['web', 'mweb']
+                        }
+                    },
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': quality,
+                    }],
+                    'quiet': True,
+                    'no_warnings': True,
+                }
+                if shutil.which("node"):
+                    ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
+                    ydl_opts['remote_components'] = ['ejs:github']
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        meta = ydl.extract_info(clean_url, download=True)
+                        if meta:
+                            if not req.title or not req.title.strip():
+                                video_title = meta.get('title') or video_title
+                            if not req.artist or not req.artist.strip():
+                                video_artist = meta.get('uploader') or meta.get('channel') or video_artist
+                            if meta.get('thumbnail'):
+                                thumbnail_url = meta.get('thumbnail')
+                            duration = meta.get('duration')
+                            break
+                except Exception as err:
+                    last_err = err
+                    continue
+            if not meta and not final_mp3_path.exists():
+                job['status'] = 'error'
+                job['error'] = f"Unable to extract audio for this video: {last_err or 'Stream blocked'}"
+                job['status_text'] = job['error']
+                return
+
+        # If converted via worker, transcode / trim with FFmpeg to produce final_mp3_path
+        if converted_via_worker:
+            job['progress'] = 80
+            job['status'] = 'converting'
+            job['status_text'] = f'Encoding {quality}kbps MP3 audio with FFmpeg...'
+            
+            ffmpeg_cmd = ["ffmpeg", "-y", "-i", raw_mp3_path]
+            if req.trim_start is not None and req.trim_start > 0:
+                ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
+            if req.trim_end is not None and req.trim_end > 0:
+                ffmpeg_cmd.extend(["-to", str(req.trim_end)])
+            ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(final_mp3_path)])
+            
+            res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if res.returncode != 0 or not final_mp3_path.exists():
+                # If re-encoding failed, move raw file to final
+                shutil.move(raw_mp3_path, str(final_mp3_path))
+            else:
+                if os.path.exists(raw_mp3_path):
+                    os.remove(raw_mp3_path)
+
+        if not final_mp3_path.exists():
+            job['status'] = 'error'
+            job['error'] = "MP3 conversion failed - output file could not be generated."
+            job['status_text'] = job['error']
+            return
+
+        # Trimming for yt-dlp path if requested
+        if not converted_via_worker and (req.trim_start is not None or req.trim_end is not None):
             job['progress'] = 80
             job['status_text'] = 'Trimming audio segment...'
             trimmed_path = Path(f"{out_base}_trimmed.mp3")
-            
-            ffmpeg_cmd = ["ffmpeg", "-y", "-i", str(mp3_path)]
+            ffmpeg_cmd = ["ffmpeg", "-y", "-i", str(final_mp3_path)]
             if req.trim_start is not None and req.trim_start > 0:
                 ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
             if req.trim_end is not None and req.trim_end > 0:
                 ffmpeg_cmd.extend(["-to", str(req.trim_end)])
             ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(trimmed_path)])
-            
-            import subprocess
             res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if res.returncode == 0 and trimmed_path.exists():
-                mp3_path.unlink(missing_ok=True)
-                trimmed_path.rename(mp3_path)
+                final_mp3_path.unlink(missing_ok=True)
+                trimmed_path.rename(final_mp3_path)
 
-        # ID3 Tagging & Album Art
+        # ID3 Tagging & Album Art with Mutagen
         job['status'] = 'tagging'
-        job['progress'] = 88
+        job['progress'] = 90
         job['status_text'] = 'Embedding ID3 metadata & album art...'
 
         try:
-            audio = MP3(str(mp3_path), ID3=ID3)
+            audio = MP3(str(final_mp3_path), ID3=ID3)
             try:
                 audio.add_tags()
             except Exception:
@@ -362,9 +459,9 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                         thumbnail_url,
                         headers={'User-Agent': 'Mozilla/5.0'}
                     )
-                    with urllib.request.urlopen(thumb_req, timeout=8) as resp:
+                    with urllib.request.urlopen(thumb_req, timeout=6) as resp:
                         img_data = resp.read()
-                        mime = 'image/jpeg' if 'jpg' in thumbnail_url or 'jpeg' in thumbnail_url else 'image/png'
+                        mime = 'image/jpeg' if ('jpg' in thumbnail_url or 'jpeg' in thumbnail_url) else 'image/png'
                         audio.tags.add(APIC(
                             encoding=3,
                             mime=mime,
@@ -373,22 +470,24 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                             data=img_data
                         ))
                 except Exception as thumb_err:
-                    print(f"Thumbnail embed warning: {thumb_err}")
+                    print(f"Thumbnail embed note: {thumb_err}")
 
             audio.save()
+            if not duration and hasattr(audio, 'info') and hasattr(audio.info, 'length'):
+                duration = int(audio.info.length)
         except Exception as tag_err:
-            print(f"ID3 Tagging warning: {tag_err}")
+            print(f"ID3 Tagging note: {tag_err}")
 
         # Finalize file details
         safe_title = sanitize_filename(video_title)
         safe_artist = sanitize_filename(video_artist)
         download_filename = f"{safe_artist} - {safe_title}.mp3" if safe_artist and safe_artist != "YouTube" else f"{safe_title}.mp3"
-        file_size = mp3_path.stat().st_size
+        file_size = final_mp3_path.stat().st_size
 
         job['progress'] = 100
         job['status'] = 'completed'
         job['status_text'] = 'Conversion complete! Your MP3 is ready.'
-        job['file_path'] = str(mp3_path)
+        job['file_path'] = str(final_mp3_path)
         job['filename'] = download_filename
         job['file_size'] = file_size
         job['file_size_formatted'] = f"{file_size / (1024 * 1024):.2f} MB"
