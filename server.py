@@ -526,6 +526,13 @@ def run_diagnostics(v: str = "JGwWNGJdvx8"):
         req = urllib.request.Request(init_url, headers=headers)
         with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
             results["worker_resp"] = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        results["worker_err"] = f"HTTP {e.code}: {e.reason}"
+        try:
+            results["worker_body"] = e.read().decode("utf-8", errors="ignore")[:500]
+        except Exception:
+            pass
+        results["worker_headers"] = dict(e.headers)
     except Exception as e:
         results["worker_err"] = f"{type(e).__name__}: {str(e)}"
     
