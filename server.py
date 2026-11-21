@@ -229,8 +229,9 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
     cookie_file = get_cookiefile_path()
 
     # Client profiles tried in sequence to bypass YouTube bot blocks on cloud/datacenter IPs
+    # 'visionos' uses modern unthrottled API endpoints that do not enforce bot challenges
     client_profiles = [
-        ['tv_embedded', 'android_creator', 'android_music', 'android'],
+        ['visionos'],
         ['tv_embedded'],
         ['android_creator'],
         ['android_music'],
