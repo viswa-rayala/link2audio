@@ -1,96 +1,152 @@
-# YouTube to MP3 Converter Web Application
+# Link2Audio — YouTube to MP3 Converter 🎵
 
-A modern, high-performance web application that extracts and converts YouTube share links (including regular videos, Shorts, mobile links, and YouTube Music) into high-fidelity MP3 audio files with ID3 metadata and embedded album art.
+> A modern, high-performance web application to extract, tag, and download YouTube audio as studio-grade 320kbps MP3s.
 
----
-
-## ✨ Features
-
-- **Drag & Drop / Paste Input**:
-  - Drag and drop any YouTube link directly from another browser tab or desktop onto the drop zone.
-  - One-click "Paste" button or standard keyboard shortcuts (`Ctrl+V` / `Cmd+V`).
-  - Supports all link variations:
-    - Standard: `https://www.youtube.com/watch?v=...`
-    - Shortened share links: `https://youtu.be/...`
-    - YouTube Shorts: `https://youtube.com/shorts/...`
-    - Mobile & YouTube Music: `https://m.youtube.com/...` & `https://music.youtube.com/...`
-- **Instant Metadata Extraction**:
-  - Automatically fetches video title, channel/artist, duration, and high-resolution thumbnail before conversion.
-  - Allows in-place editing of title and artist name before generating the MP3.
-- **Studio-Quality Audio Encoding**:
-  - Bitrate options: **320 kbps** (Studio Quality), **256 kbps**, **192 kbps**, **128 kbps**.
-  - Uses FFmpeg's `libmp3lame` encoder for clean audio dynamics.
-- **ID3 Metadata & HD Album Art Embedding**:
-  - Injects Title (`TIT2`), Artist (`TPE1`), and Album (`TALB`) tags.
-  - Automatically downloads and embeds the high-res thumbnail as front cover artwork (`APIC`) directly into the MP3 file, making it display beautifully in Apple Music, Spotify local files, iTunes, Android music players, and car infotainment systems.
-- **Audio Trimmer (Optional)**:
-  - Specify start and end timestamps (in seconds or MM:SS) to extract only a desired snippet/chorus of a song or podcast.
-- **Live Conversion Progress**:
-  - Real-time progress bar displaying download percentage, encoding step, speed, and ETA.
-- **Built-in HTML5 Audio Preview**:
-  - Listen to the converted MP3 directly in the browser with seeking, playback controls, and duration before downloading to disk.
-- **Recent Conversions Library**:
-  - Keeps track of converted files for the session with one-click re-download, preview playback, and deletion.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-link2mate.onrender.com-ff1a40?style=for-the-badge&logo=render)](https://link2mate.onrender.com/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)](Dockerfile)
+[![Python](https://img.shields.io/badge/FastAPI-3.11+-009688?style=for-the-badge&logo=fastapi)](server.py)
 
 ---
 
-## 🚀 Quick Start Guide
+### 🌐 Live Deployment
+The application is live and accessible online at:  
+👉 **[https://link2mate.onrender.com/](https://link2mate.onrender.com/)**
+
+---
+
+## ✨ Features & Capabilities
+
+- **⚡ Instant Sub-Second Metadata (~150ms)**:
+  - Fetches video titles, creators, and HD thumbnails via an ultra-fast YouTube oEmbed resolver.
+  - Client-side automatic fallback ensures the preview card renders immediately even during server cold-starts.
+
+- **🎛️ Drag & Drop / One-Click Paste**:
+  - Drag and drop share links from other browser tabs directly onto the drop zone.
+  - Native clipboard paste button (`Paste`) and keyboard shortcut (`Ctrl+V` / `Cmd+V`) support.
+  - Handles all link variations:
+    - Standard watch links (`youtube.com/watch?v=...`)
+    - Shortened links (`youtu.be/...`)
+    - YouTube Shorts (`youtube.com/shorts/...`)
+    - YouTube Music & Mobile (`music.youtube.com/...`, `m.youtube.com/...`)
+
+- **🛡️ Cloud Datacenter Bot-Bypass**:
+  - Employs a multi-profile client strategy (`tv_embedded`, `android_creator`, `android_music`, `android`) to bypass "Sign in to confirm you're not a bot" blocks commonly triggered on datacenter IP addresses (Render, AWS, GCP).
+  - Optional support for `YOUTUBE_COOKIES` environment variable for hardened cloud environments.
+
+- **🧹 100% Ephemeral (Zero Permanent Disk Storage)**:
+  - Audio files are stored temporarily in volatile system temp memory (`/tmp`).
+  - **Instant Post-Download Cleanup**: Uses Starlette background tasks to permanently destroy the temporary MP3 the instant the browser finishes downloading the stream.
+  - **Auto Garbage Collector**: Any uncollected preview files older than 5 minutes are purged automatically.
+
+- **🎧 Built-in HTML5 Audio Preview**:
+  - Listen to converted audio directly in the browser with seeking, playback controls, and duration display before saving to disk.
+
+- **✂️ Audio Trimmer (Optional)**:
+  - Extract a specific segment, chorus, or podcast snippet by setting start and end timestamps.
+
+- **🏷️ ID3 Tags & HD Cover Art Embedding**:
+  - Tags MP3 files with Song Title (`TIT2`), Artist (`TPE1`), and Album (`TALB`).
+  - Embeds the YouTube thumbnail as front album cover artwork (`APIC`), displaying seamlessly across Apple Music, Spotify Local Files, iTunes, Android, and car infotainment systems.
+
+- **🎚️ Studio Quality Bitrates**:
+  - Select between **320 kbps** (Studio Quality), **256 kbps**, **192 kbps**, or **128 kbps** encoded via FFmpeg (`libmp3lame`).
+
+---
+
+## 🚀 Quick Start Guide (Local Setup)
 
 ### Prerequisites
 - Python 3.10+
-- FFmpeg (`ffmpeg` installed on system)
-- Node.js (for yt-dlp JS challenge execution)
+- FFmpeg installed (`sudo apt install ffmpeg` on Ubuntu/Debian)
+- Node.js installed (`sudo apt install nodejs`)
 
 ### 1. Installation
-Clone or navigate to the project directory:
+Clone or navigate to the repository:
 ```bash
-cd "youtube to mp3 converter"
+git clone https://github.com/viswa-rayala/link2audio-.git
+cd link2audio-
 ```
 
-Activate the virtual environment (pre-configured) or create a new one:
+Create and activate the virtual environment:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Start the Server
-Run with the one-click restart script (automatically kills any existing process on port 8000 and restarts):
+### 2. Run the Server
+Use the included helper script (kills any stale process on port 8000 and restarts with auto-reload):
 ```bash
 ./run.sh
 ```
 
-Or run the single command directly in your terminal:
+Or run directly with Uvicorn:
 ```bash
 fuser -k 8000/tcp || true; .venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 3. Open in Browser
-Open your browser and navigate to:
+Visit:
 ```
 http://localhost:8000
 ```
 
 ---
 
-## 🛠 Project Structure
+## 🐳 Docker Deployment
 
-```
-youtube to mp3 converter/
-├── server.py              # FastAPI backend with yt-dlp and FFmpeg pipeline
-├── requirements.txt       # Python dependencies (yt-dlp, fastapi, uvicorn, mutagen, etc.)
-├── static/
-│   ├── index.html         # Modern web client UI
-│   ├── css/
-│   │   └── style.css      # Dark glassmorphic styling & responsive layouts
-│   └── js/
-│       └── app.js         # Client-side drag/drop, audio player, API communication
-└── downloads/             # Temporary folder storing converted MP3 files
+Run locally with Docker:
+```bash
+# Build the container
+docker build -t link2audio .
+
+# Run container on port 8000
+docker run -p 8000:8000 link2audio
 ```
 
 ---
 
-## 🔒 Security & Privacy
-- Temporary audio files are safely sanitized and automatically cleaned up.
-- File operations prevent directory traversal and special character injection in filenames.
-# link2audio-
+## ☁️ Deploying to Render (Step-by-Step)
+
+1. Fork or push this repository to GitHub.
+2. Sign in to **[Render.com](https://render.com)** with your GitHub account.
+3. Click **New +** -> **Web Service**.
+4. Select your repository (`link2audio-`).
+5. Choose **Docker** as the runtime (Render will automatically detect the [Dockerfile](Dockerfile)).
+6. Select the **Free** instance plan.
+7. Click **Deploy Web Service**.
+
+Your live URL will be ready in 1–2 minutes!
+
+---
+
+## 🛠 Project Structure
+
+```
+.
+├── Dockerfile             # Production container setup (FFmpeg + Node.js + Python)
+├── .dockerignore          # Docker build optimizations
+├── .gitignore             # Keeps repository free of temporary audio files
+├── render.yaml            # 1-click blueprint deployment configuration
+├── requirements.txt       # Production dependencies
+├── run.sh                 # 1-command port killer & server starter
+├── server.py              # FastAPI backend with multi-profile extractor & ephemeral cleanup
+└── static/
+    ├── index.html         # Responsive web interface
+    ├── css/
+    │   └── style.css      # Dark glassmorphic design & animations
+    └── js/
+        └── app.js         # Client-side audio preview, drag & drop, and API handling
+```
+
+---
+
+## 🔒 Privacy & Safety
+- Conversion files are treated as ephemeral streams and are deleted immediately upon download.
+- No personal user data or listening history is permanently stored.
+- Sanitized filenames prevent directory traversal and header injection.
+
+---
+
+## 📄 License
+This project is open-source and available under the [MIT License](LICENSE).
