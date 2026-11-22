@@ -111,9 +111,8 @@ def get_y2mate_key(force_refresh: bool = False) -> str:
 
 def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, raw_output_path: str) -> Dict[str, Any]:
     """
-    Direct audio resolution engine (inspired by y2mate.gs).
-    Extracts and streams YouTube audio via Cloudflare worker, completely bypassing
-    YouTube datacenter bot verification on cloud hosts like Render without needing cookies.
+    Direct audio resolution engine utilizing the upstream etacloud API (identical to y2mate.gs).
+    Extracts high-fidelity audio streams seamlessly without bot checks or cookies.
     """
     key = get_y2mate_key()
     headers = {
@@ -123,79 +122,120 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
     }
     ctx = ssl.create_default_context()
     
-    data = None
-    for attempt in range(2):
+    # 1. Primary Strategy: eta.etacloud.org (Official y2mate upstream cluster)
+    try:
+        job['status_text'] = "Authenticating with conversion cluster..."
+        job['progress'] = 20
         now_ms = int(time.time() * 1000)
-        init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={video_id}&f=mp3&_={now_ms}"
-        req = urllib.request.Request(init_url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except Exception as net_err:
-            if attempt == 0:
-                key = get_y2mate_key(force_refresh=True)
-                continue
-            raise net_err
+        auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={key}&_={now_ms}"
+        req = urllib.request.Request(auth_url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            auth_data = json.loads(r.read().decode("utf-8"))
+        bearer = auth_data.get("key")
+        
+        if bearer:
+            job['status_text'] = "Initializing stream conversion..."
+            job['progress'] = 30
+            init_url = f"https://eta.etacloud.org/api/v1/init?_={int(time.time() * 1000)}"
+            init_headers = dict(headers)
+            init_headers["Authorization"] = f"Bearer {bearer}"
+            req = urllib.request.Request(init_url, headers=init_headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                init_data = json.loads(r.read().decode("utf-8"))
+            convert_url = init_data.get("convertURL")
             
-        if data.get("error", 0) > 0:
-            if attempt == 0:
-                key = get_y2mate_key(force_refresh=True)
-                continue
-            raise Exception(f"Converter worker returned error code {data.get('error')}")
-        break
-
-    if not data:
-        raise Exception("Failed to receive response from audio stream resolver")
-
-    status = data.get("status")
-    download_url = data.get("downloadURL")
-    title = data.get("title") or ""
-    
-    if status == "progress":
-        prog_url = data.get("progressURL")
-        if not prog_url:
-            raise Exception("No progress URL returned from stream resolver")
-        
-        job['status_text'] = "Converting YouTube audio on cloud worker..."
-        for step in range(30):
-            time.sleep(2)
-            p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
-            try:
-                with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
-                    p_data = json.loads(p_resp.read().decode("utf-8"))
-                    job['progress'] = min(20 + (step * 3), 68)
-                    if p_data.get("title") and not title:
-                        title = p_data.get("title")
-                    if p_data.get("progress", 0) >= 3 or p_data.get("status") == "download":
-                        download_url = p_data.get("downloadURL") or download_url
-                        break
-            except Exception as poll_err:
-                print(f"Stream poll warning: {poll_err}")
+            if convert_url:
+                job['status_text'] = "Resolving audio format..."
+                job['progress'] = 45
+                c_url = f"{convert_url}&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
+                req = urllib.request.Request(c_url, headers=headers)
+                with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+                    c_data = json.loads(r.read().decode("utf-8"))
+                    
+                if c_data.get("redirect") == 1:
+                    redir_url = c_data["redirectURL"]
+                    if "&v=" not in redir_url:
+                        redir_url += f"&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
+                    req = urllib.request.Request(redir_url, headers=headers)
+                    with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+                        c_data = json.loads(r.read().decode("utf-8"))
                 
-    if not download_url:
-        raise Exception("Could not obtain download URL for this video")
-        
-    job['status'] = 'downloading'
-    job['progress'] = 70
-    job['status_text'] = 'Streaming high-speed audio data...'
-    
-    dl_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://y2mate.gs/"
-    }
-    dl_req = urllib.request.Request(download_url, headers=dl_headers)
-    with urllib.request.urlopen(dl_req, context=ctx, timeout=40) as dl_resp:
-        with open(raw_output_path, "wb") as f:
-            while True:
-                chunk = dl_resp.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
+                download_url = c_data.get("downloadURL")
+                title = c_data.get("title") or ""
                 
-    return {
-        "title": title,
-        "format": "mp3"
-    }
+                # If progress is needed, poll
+                if c_data.get("status") == "progress" and c_data.get("progressURL"):
+                    prog_url = c_data["progressURL"]
+                    job['status_text'] = "Converting track..."
+                    for step in range(30):
+                        time.sleep(2)
+                        p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
+                        with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
+                            p_data = json.loads(p_resp.read().decode("utf-8"))
+                            job['progress'] = min(45 + (step * 2), 68)
+                            if p_data.get("title") and not title:
+                                title = p_data.get("title")
+                            if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
+                                download_url = p_data.get("downloadURL") or download_url
+                                break
+                                
+                if download_url:
+                    job['status'] = 'downloading'
+                    job['progress'] = 70
+                    job['status_text'] = 'Streaming high-speed audio data...'
+                    dl_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"}
+                    dl_req = urllib.request.Request(download_url, headers=dl_headers)
+                    with urllib.request.urlopen(dl_req, context=ctx, timeout=60) as dl_resp:
+                        with open(raw_output_path, "wb") as f:
+                            while True:
+                                chunk = dl_resp.read(65536)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                    return {"title": title, "format": "mp3"}
+    except Exception as e:
+        print(f"Etacloud strategy note: {e}")
+
+    # 2. Secondary Strategy: Cloudflare worker endpoint
+    try:
+        now_ms = int(time.time() * 1000)
+        worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={video_id}&f=mp3&_={now_ms}"
+        req = urllib.request.Request(worker_init_url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("error", 0) == 0:
+            download_url = data.get("downloadURL")
+            title = data.get("title") or ""
+            if data.get("status") == "progress" and data.get("progressURL"):
+                prog_url = data["progressURL"]
+                for step in range(30):
+                    time.sleep(2)
+                    p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
+                    with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
+                        p_data = json.loads(p_resp.read().decode("utf-8"))
+                        if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
+                            download_url = p_data.get("downloadURL") or download_url
+                            if p_data.get("title"):
+                                title = p_data.get("title")
+                            break
+            if download_url:
+                job['status'] = 'downloading'
+                job['progress'] = 70
+                job['status_text'] = 'Streaming high-speed audio data...'
+                dl_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"}
+                dl_req = urllib.request.Request(download_url, headers=dl_headers)
+                with urllib.request.urlopen(dl_req, context=ctx, timeout=60) as dl_resp:
+                    with open(raw_output_path, "wb") as f:
+                        while True:
+                            chunk = dl_resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                return {"title": title, "format": "mp3"}
+    except Exception as e:
+        print(f"Worker strategy note: {e}")
+
+    raise Exception("Could not resolve audio stream via converter engines")
 
 def sanitize_filename(name: str) -> str:
     """Sanitize string for safe filesystem usage and HTTP headers."""
