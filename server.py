@@ -339,34 +339,53 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                     except Exception:
                         pass
 
-        # 2. Secondary Engine: Local yt-dlp fallback (visionOS / Android profiles)
+        # 2. Secondary Engine: Direct Android Innertube RPC extractor (bypasses HTML webpage bot check)
         if not converted_via_worker:
-            job['status_text'] = 'Resolving audio stream via secondary engine...'
+            job['status_text'] = 'Resolving audio stream directly...'
             raw_output = f"{out_base}.%(ext)s"
-            client_profiles = [
-                ['visionos'],
-                ['tv_embedded'],
-                ['android_creator'],
-                ['android']
+            
+            def progress_hook(d):
+                if d['status'] == 'downloading':
+                    total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                    downloaded = d.get('downloaded_bytes') or 0
+                    if total > 0:
+                        pct = 20 + int((downloaded / total) * 55)
+                        job['progress'] = min(pct, 75)
+                        job['status_text'] = f"Downloading audio stream: {int((downloaded / total) * 100)}%"
+                    else:
+                        job['progress'] = 35
+                        job['status_text'] = 'Downloading audio stream...'
+                elif d['status'] == 'finished':
+                    job['progress'] = 80
+                    job['status'] = 'converting'
+                    job['status_text'] = f'Encoding {quality}kbps MP3 audio with FFmpeg...'
+
+            client_configs = [
+                {
+                    'player_client': ['android'],
+                    'player_skip': ['webpage', 'configs', 'initial_data']
+                },
+                {
+                    'player_client': ['android'],
+                    'player_skip': ['webpage', 'configs']
+                }
             ]
             meta = None
             last_err = None
-            for profile in client_profiles:
+            for cfg in client_configs:
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'outtmpl': raw_output,
                     'socket_timeout': 30,
                     'extractor_args': {
-                        'youtube': {
-                            'player_client': profile,
-                            'player_skip': ['web', 'mweb']
-                        }
+                        'youtube': cfg
                     },
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
                         'preferredcodec': 'mp3',
                         'preferredquality': quality,
                     }],
+                    'progress_hooks': [progress_hook],
                     'quiet': True,
                     'no_warnings': True,
                 }
@@ -387,6 +406,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                             break
                 except Exception as err:
                     last_err = err
+                    print(f"Extraction with cfg {cfg} note: {err}")
                     continue
             if not meta and not final_mp3_path.exists():
                 job['status'] = 'error'
@@ -508,34 +528,23 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
 @app.get("/api/diag")
 def run_diagnostics(v: str = "JGwWNGJdvx8"):
     results = {}
-    try:
-        results["key"] = get_y2mate_key()
-    except Exception as e:
-        results["key_err"] = str(e)
-    
-    try:
-        key = results.get("key") or "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Referer": "https://y2mate.gs/",
-            "Origin": "https://y2mate.gs"
+    url = f"https://www.youtube.com/watch?v={v}"
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android'],
+                'player_skip': ['webpage', 'configs', 'initial_data']
+            }
         }
-        ctx = ssl.create_default_context()
-        now_ms = int(time.time() * 1000)
-        init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={v}&f=mp3&_={now_ms}"
-        req = urllib.request.Request(init_url, headers=headers)
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
-            results["worker_resp"] = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        results["worker_err"] = f"HTTP {e.code}: {e.reason}"
-        try:
-            results["worker_body"] = e.read().decode("utf-8", errors="ignore")[:500]
-        except Exception:
-            pass
-        results["worker_headers"] = dict(e.headers)
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            results["ytdlp_android"] = f"SUCCESS! {info.get('title')}"
     except Exception as e:
-        results["worker_err"] = f"{type(e).__name__}: {str(e)}"
-    
+        results["ytdlp_android_err"] = str(e)
     return results
 
 @app.post("/api/convert")
