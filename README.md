@@ -1,6 +1,6 @@
-# Link2Audio — YouTube to MP3 Converter 🎵
+# Link2Audio — YouTube & Spotify to MP3 Converter 🎵
 
-> A modern, high-performance web application to extract, tag, and download YouTube audio as studio-grade 320kbps MP3s.
+> A modern, high-performance web application to extract, tag, and download YouTube & Spotify audio as studio-grade 320kbps MP3s.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-link2mate.onrender.com-ff1a40?style=for-the-badge&logo=render)](https://link2mate.onrender.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)](Dockerfile)
@@ -16,8 +16,12 @@ The application is live and accessible online at:
 
 ## ✨ Features & Capabilities
 
+- **🟢 Dual YouTube & Spotify Support**:
+  - Paste or drag & drop any YouTube video link (`youtube.com`, `youtu.be`, Shorts, YouTube Music) OR Spotify track link (`open.spotify.com/track/...`, `spotify:track:...`, `spotify.link/...`).
+  - Seamlessly extracts metadata, matching Spotify tracks to pristine audio streams without requiring Spotify developer keys or user logins.
+
 - **⚡ Instant Sub-Second Metadata (~150ms)**:
-  - Fetches video titles, creators, and HD thumbnails via an ultra-fast YouTube oEmbed resolver.
+  - Fetches titles, artists, and HD album artwork via ultra-fast public oEmbed & embed resolvers.
   - Client-side automatic fallback ensures the preview card renders immediately even during server cold-starts.
 
 - **🎛️ Drag & Drop / One-Click Paste**:

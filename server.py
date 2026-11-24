@@ -62,6 +62,128 @@ def clean_youtube_url(url: str) -> str:
         return f"https://www.youtube.com/watch?v={video_id}"
     return url.strip()
 
+def extract_spotify_id(url: str) -> Optional[str]:
+    """Extract 22-char Spotify track ID from any Spotify URL (supports localized, embed, and shortened)."""
+    clean_u = url.strip()
+    if "spotify.link" in clean_u or "spoti.fi" in clean_u:
+        try:
+            req = urllib.request.Request(clean_u, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                clean_u = resp.geturl()
+        except Exception:
+            pass
+    pattern = r'(?:open\.spotify\.com\/(?:intl-[a-z]{2,5}\/)?track\/|spotify:track:)([a-zA-Z0-9]{22})'
+    match = re.search(pattern, clean_u)
+    return match.group(1) if match else None
+
+def fetch_spotify_track_info(track_id: str) -> Optional[Dict[str, Any]]:
+    """Instant lookup of Spotify track metadata, duration, and HD album art."""
+    try:
+        url = f"https://open.spotify.com/embed/track/{track_id}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        })
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as r:
+            html = r.read().decode("utf-8")
+        
+        matches = re.findall(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', html)
+        if matches:
+            data = json.loads(matches[0])
+            entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+            if entity and (entity.get('name') or entity.get('title')):
+                title = entity.get('name') or entity.get('title')
+                artists_list = entity.get('artists', [])
+                artist = ", ".join([a.get('name') for a in artists_list if a.get('name')]) if artists_list else "Spotify Artist"
+                duration_ms = entity.get('duration')
+                duration_sec = int(duration_ms / 1000) if duration_ms else None
+                
+                images = entity.get('visualIdentity', {}).get('image', [])
+                thumbnail = ""
+                if images:
+                    sorted_imgs = sorted(images, key=lambda x: x.get('maxWidth', 0), reverse=True)
+                    thumbnail = sorted_imgs[0].get('url', '')
+                    
+                return {
+                    "id": track_id,
+                    "platform": "spotify",
+                    "url": f"https://open.spotify.com/track/{track_id}",
+                    "title": title,
+                    "author": artist,
+                    "duration": duration_sec,
+                    "duration_formatted": format_duration(duration_sec) if duration_sec else "Ready to convert",
+                    "thumbnail": thumbnail,
+                    "preview_url": entity.get('audioPreview', {}).get('url'),
+                    "view_count": 0
+                }
+    except Exception as e:
+        print(f"Spotify embed metadata fetch note: {e}")
+    
+    # Fallback to Spotify oEmbed
+    try:
+        oembed_url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            return {
+                "id": track_id,
+                "platform": "spotify",
+                "url": f"https://open.spotify.com/track/{track_id}",
+                "title": data.get("title", "Spotify Track"),
+                "author": "Spotify Artist",
+                "duration": None,
+                "duration_formatted": "Ready to convert",
+                "thumbnail": data.get("thumbnail_url", ""),
+                "view_count": 0
+            }
+    except Exception as e2:
+        print(f"Spotify oEmbed fallback note: {e2}")
+        return None
+
+def search_youtube_for_track(artist: str, title: str) -> Optional[str]:
+    """Search YouTube for the corresponding audio track and return the 11-char video ID."""
+    clean_artist = re.sub(r'[\(\)\[\]\{\}\/\\,"]', ' ', artist).strip()
+    clean_title = re.sub(r'[\(\)\[\]\{\}\/\\,"]', ' ', title).strip()
+    queries = [
+        f"{clean_artist} - {clean_title} audio",
+        f"{clean_artist} {clean_title} official",
+        f"{clean_artist} {clean_title}"
+    ]
+    
+    ctx = ssl.create_default_context()
+    for q in queries:
+        try:
+            search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(q)}"
+            req = urllib.request.Request(search_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9"
+            })
+            with urllib.request.urlopen(req, context=ctx, timeout=6) as r:
+                html = r.read().decode("utf-8")
+                vids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+                if vids:
+                    return vids[0]
+        except Exception as e:
+            print(f"YouTube search attempt note for '{q}': {e}")
+            
+    # Fallback: yt-dlp ytsearch
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'extract_flat': True,
+            'default_search': 'ytsearch1',
+            'no_warnings': True,
+            'socket_timeout': 6,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            res = ydl.extract_info(f"ytsearch1:{clean_artist} {clean_title} audio", download=False)
+            if res and 'entries' in res and len(res['entries']) > 0:
+                return res['entries'][0].get('id')
+    except Exception as e2:
+        print(f"yt-dlp search fallback note: {e2}")
+        
+    return None
+
 def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
     """Instant lookup via YouTube's public oEmbed API (<200ms response time)."""
     try:
@@ -428,12 +550,23 @@ class ConvertRequest(BaseModel):
 
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
-    """Fetch video metadata with fast oEmbed lookup and yt-dlp fallback."""
-    clean_url = clean_youtube_url(req.url)
+    """Fetch video or Spotify track metadata with fast lookup."""
+    url_str = req.url.strip()
+    
+    # 1. Spotify Track Path
+    spotify_id = extract_spotify_id(url_str)
+    if spotify_id:
+        spot_info = fetch_spotify_track_info(spotify_id)
+        if spot_info:
+            return {"success": True, "data": spot_info}
+        raise HTTPException(status_code=400, detail="Could not load Spotify track details. Please check the link.")
+        
+    # 2. YouTube Path
+    clean_url = clean_youtube_url(url_str)
     video_id = extract_video_id(clean_url)
     
     if not video_id:
-        raise HTTPException(status_code=400, detail="Invalid YouTube URL. Please provide a valid YouTube link.")
+        raise HTTPException(status_code=400, detail="Invalid link. Please provide a valid YouTube or Spotify track URL.")
 
     # 1. Ultra-fast path: YouTube public oEmbed API (~150ms)
     fast_info = fetch_fast_video_info(video_id)
@@ -465,6 +598,7 @@ def get_video_info(req: InfoRequest):
                 "success": True,
                 "data": {
                     "id": video_id,
+                    "platform": "youtube",
                     "url": clean_url,
                     "title": title,
                     "author": author,
@@ -482,29 +616,48 @@ def get_video_info(req: InfoRequest):
 
 def run_conversion_job(job_id: str, req: ConvertRequest):
     """
-    Seamless worker task that converts YouTube links to studio-grade MP3.
-    Uses the high-speed cloud worker engine as primary resolver (like y2mate.gs) to completely
-    bypass YouTube bot blocks on datacenter IPs without requiring cookies, with local yt-dlp fallback.
+    Seamless worker task that converts YouTube & Spotify links to studio-grade MP3.
+    Uses the high-speed cloud worker engine as primary resolver to completely
+    bypass YouTube bot blocks on datacenter IPs without requiring cookies.
     """
     job = jobs[job_id]
     job['status'] = 'downloading'
     job['progress'] = 10
-    job['status_text'] = 'Connecting to YouTube audio stream...'
+    job['status_text'] = 'Analyzing audio source...'
 
-    clean_url = clean_youtube_url(req.url)
+    url_str = req.url.strip()
+    spotify_id = extract_spotify_id(url_str)
+
     try:
-        video_id = extract_video_id(clean_url)
         out_base = str(TEMP_DIR / job_id)
         raw_mp3_path = f"{out_base}_raw.mp3"
         final_mp3_path = Path(f"{out_base}.mp3")
         quality = req.quality if req.quality in ["128", "192", "256", "320"] else "320"
-
-        # Fetch fast oEmbed metadata for title, artist, thumbnail if available
-        fast_meta = fetch_fast_video_info(video_id) if video_id else None
-        video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else "YouTube Audio")
-        video_artist = req.artist.strip() if req.artist and req.artist.strip() else (fast_meta.get("author") if fast_meta else "YouTube")
-        thumbnail_url = fast_meta.get("thumbnail") if fast_meta else (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else "")
+        
+        video_id = None
         duration = None
+        
+        if spotify_id:
+            job['status_text'] = 'Matching Spotify track to high-fidelity audio stream...'
+            job['progress'] = 15
+            spot_meta = fetch_spotify_track_info(spotify_id)
+            video_title = req.title.strip() if req.title and req.title.strip() else (spot_meta.get("title") if spot_meta else "Spotify Track")
+            video_artist = req.artist.strip() if req.artist and req.artist.strip() else (spot_meta.get("author") if spot_meta else "Spotify Artist")
+            thumbnail_url = spot_meta.get("thumbnail") if spot_meta else ""
+            duration = spot_meta.get("duration") if spot_meta else None
+            
+            # Find corresponding YouTube video ID
+            video_id = search_youtube_for_track(video_artist, video_title)
+            if not video_id:
+                raise Exception(f"Could not find an audio stream matching '{video_artist} - {video_title}'")
+            clean_url = f"https://www.youtube.com/watch?v={video_id}"
+        else:
+            clean_url = clean_youtube_url(url_str)
+            video_id = extract_video_id(clean_url)
+            fast_meta = fetch_fast_video_info(video_id) if video_id else None
+            video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else "YouTube Audio")
+            video_artist = req.artist.strip() if req.artist and req.artist.strip() else (fast_meta.get("author") if fast_meta else "YouTube")
+            thumbnail_url = fast_meta.get("thumbnail") if fast_meta else (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else "")
 
         converted_via_worker = False
 
@@ -513,8 +666,10 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         if video_id:
             try:
                 worker_res = fetch_via_converter_api(video_id, job, quality, raw_mp3_path)
-                if worker_res.get("title") and (not req.title or not req.title.strip()):
+                if not spotify_id and worker_res.get("title") and (not req.title or not req.title.strip()):
                     video_title = worker_res["title"]
+                if not duration and worker_res.get("duration"):
+                    duration = int(worker_res["duration"])
                 converted_via_worker = True
             except Exception as worker_err:
                 print(f"Converter worker note ({worker_err}), falling back to secondary yt-dlp...")
@@ -636,7 +791,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
 
             audio.tags.add(TIT2(encoding=3, text=video_title))
             audio.tags.add(TPE1(encoding=3, text=video_artist))
-            audio.tags.add(TALB(encoding=3, text="YouTube Audio"))
+            audio.tags.add(TALB(encoding=3, text="Spotify Track" if spotify_id else "YouTube Audio"))
 
             if req.embed_thumbnail and thumbnail_url:
                 try:
@@ -666,7 +821,8 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         # Finalize file details
         safe_title = sanitize_filename(video_title)
         safe_artist = sanitize_filename(video_artist)
-        if safe_artist and safe_artist.lower() != "youtube" and not safe_title.lower().startswith(safe_artist.lower()):
+        generic_artists = {"youtube", "spotify artist", "spotify", "unknown artist"}
+        if safe_artist and safe_artist.lower() not in generic_artists and not safe_title.lower().startswith(safe_artist.lower()):
             download_filename = f"{safe_artist} - {safe_title}.mp3"
         else:
             download_filename = f"{safe_title}.mp3"

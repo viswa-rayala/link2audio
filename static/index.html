@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube to MP3 Converter — Fast, High Quality Audio Downloader</title>
+  <title>Link2Audio — YouTube & Spotify to MP3 Converter (320kbps)</title>
+  <meta name="description" content="Convert YouTube videos and Spotify tracks to studio-grade 320kbps MP3 with automatic ID3 tagging and embedded HD album art. Free, fast, and no login required.">
+  <meta name="keywords" content="youtube to mp3, spotify to mp3, youtube converter, audio downloader, 320kbps mp3, music downloader">
+  <meta property="og:title" content="Link2Audio — YouTube & Spotify to MP3 Converter">
+  <meta property="og:description" content="Extract, tag, and download studio-grade 320kbps MP3 audio from YouTube and Spotify instantly.">
+  <meta property="og:type" content="website">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -11,23 +16,70 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ff1a40'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z'/></svg>">
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <header class="app-header">
-      <div class="brand-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+
+  <!-- Top Navigation Bar -->
+  <nav class="top-nav">
+    <div class="nav-container">
+      <a href="/" class="brand-logo">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 18V5l12-2v13"></path>
           <circle cx="6" cy="18" r="3"></circle>
           <circle cx="18" cy="16" r="3"></circle>
         </svg>
-        <span>High-Fidelity 320kbps MP3</span>
+        <span class="brand-text">Link<span class="gradient-text">2Audio</span></span>
+      </a>
+      <div class="nav-links">
+        <a href="#converter" class="nav-link active">Converter</a>
+        <a href="#howItWorks" class="nav-link">How It Works</a>
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#faq" class="nav-link">FAQ</a>
       </div>
-      <h1 class="app-title">Drop YouTube Link, <br><span class="gradient-text">Get Studio-Grade MP3</span></h1>
-      <p class="app-subtitle">Simply drag & drop or paste any YouTube share link below to extract, tag, and download high-quality audio instantly.</p>
+      <div class="nav-status">
+        <span class="status-indicator"></span>
+        <span>Clusters Online</span>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container" id="converter">
+    <!-- Header / Hero -->
+    <header class="app-header">
+      <div class="brand-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span>High-Speed Dual Engine • YouTube & Spotify</span>
+      </div>
+      <h1 class="app-title">Convert YouTube & Spotify<br><span class="gradient-text">to Studio-Grade MP3</span></h1>
+      <p class="app-subtitle">Paste any YouTube video, Short, or Spotify track link to extract, tag, and download crystal-clear 320kbps MP3s with embedded album artwork.</p>
     </header>
 
     <!-- Main Card -->
     <main class="glass-card">
+      <!-- Supported Platform Indicators -->
+      <div class="supported-platforms-bar">
+        <div class="platform-tag youtube">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+          </svg>
+          <span>YouTube & Shorts</span>
+        </div>
+        <div class="platform-tag spotify">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.498 17.306a.75.75 0 0 1-1.03.248c-2.822-1.724-6.374-2.115-10.559-1.16a.75.75 0 1 1-.334-1.462c4.582-1.047 8.514-.602 11.675 1.344a.75.75 0 0 1 .248 1.03zm1.467-3.262a.938.938 0 0 1-1.29.31c-3.23-1.986-8.156-2.56-11.977-1.4a.938.938 0 1 1-.548-1.794c4.372-1.326 9.8-.687 13.505 1.594a.938.938 0 0 1 .31 1.29zm.126-3.411c-3.874-2.3-10.262-2.513-13.974-1.385a1.125 1.125 0 0 1-.652-2.155c4.267-1.295 11.319-1.046 15.779 1.602a1.125 1.125 0 1 1-1.153 1.938z"/>
+          </svg>
+          <span>Spotify Tracks</span>
+        </div>
+        <div class="platform-tag music">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+          <span>Studio 320kbps</span>
+        </div>
+      </div>
+
       <!-- Drop Zone & Input Form -->
       <section id="dropZone" class="drop-zone">
         <div class="drop-zone-icon-box">
@@ -37,8 +89,8 @@
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </div>
-        <h3>Drop YouTube Share Link Here</h3>
-        <p>or paste any link from YouTube, Shorts, or YouTube Music</p>
+        <h3>Drop Link Here to Convert</h3>
+        <p>or paste any URL from YouTube (Videos/Shorts/Music) or Spotify</p>
 
         <!-- Input Bar -->
         <div class="input-bar" onclick="event.stopPropagation()">
@@ -52,7 +104,7 @@
             type="text" 
             id="urlInput" 
             class="url-input" 
-            placeholder="https://youtu.be/... or https://youtube.com/watch?v=..."
+            placeholder="Paste YouTube or Spotify track link here..."
             autocomplete="off"
             spellcheck="false"
           >
@@ -82,18 +134,29 @@
 
         <!-- Quick Sample / Testing Links -->
         <div class="samples-row" onclick="event.stopPropagation()">
-          <span>Try quick sample:</span>
-          <button class="sample-pill" data-url="https://www.youtube.com/watch?v=jNQXAC9IVRw">Classic: Me at the zoo</button>
-          <button class="sample-pill" data-url="https://youtu.be/aqz-KE-bpKQ">Big Buck Bunny</button>
+          <span class="samples-label">Quick samples:</span>
+          <button class="sample-pill spotify-pill" data-url="https://open.spotify.com/track/7qiZfU4dY1lWllzX7mPBI3">
+            <span class="dot green"></span>
+            <span>Spotify: Shape of You</span>
+          </button>
+          <button class="sample-pill youtube-pill" data-url="https://www.youtube.com/watch?v=60ItHLz5WEA">
+            <span class="dot red"></span>
+            <span>YouTube: Alan Walker - Faded</span>
+          </button>
+          <button class="sample-pill spotify-pill" data-url="https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT">
+            <span class="dot green"></span>
+            <span>Spotify: Rick Astley</span>
+          </button>
         </div>
       </section>
 
-      <!-- Video Preview & Configuration Card (Appears after fetching) -->
+      <!-- Video / Track Preview Card (Appears after fetching) -->
       <section id="previewCard" class="preview-card">
         <div class="preview-grid">
           <div class="thumb-container">
-            <img id="previewThumb" class="thumb-img" src="" alt="Video thumbnail">
+            <img id="previewThumb" class="thumb-img" src="" alt="Album Artwork">
             <span id="previewDuration" class="duration-tag">00:00</span>
+            <span id="platformBadge" class="platform-badge-tag youtube">YouTube</span>
           </div>
 
           <div class="meta-details">
@@ -101,7 +164,7 @@
               <div class="editable-field">
                 <label class="field-label">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                  Song / Audio Title
+                  Song / Track Title
                 </label>
                 <input type="text" id="editTitle" class="field-input title-input">
               </div>
@@ -109,15 +172,15 @@
               <div class="editable-field">
                 <label class="field-label">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                  Artist / Channel
+                  Artist / Creator
                 </label>
                 <input type="text" id="editArtist" class="field-input">
               </div>
             </div>
 
             <!-- Conversion Action Bar -->
-            <button id="convertBtn" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 1.05rem;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button id="convertBtn" class="btn-primary btn-convert-main">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 18V5l12-2v13"></path>
                 <circle cx="6" cy="18" r="3"></circle>
                 <circle cx="18" cy="16" r="3"></circle>
@@ -135,13 +198,13 @@
               <option value="320" selected>320 kbps (Studio Quality • Recommended)</option>
               <option value="256">256 kbps (High Fidelity)</option>
               <option value="192">192 kbps (Standard MP3)</option>
-              <option value="128">128 kbps (Compact • Smaller Size)</option>
+              <option value="128">128 kbps (Compact Size)</option>
             </select>
           </div>
 
           <label class="checkbox-group">
             <input type="checkbox" id="embedCoverCheck" checked>
-            <span>Embed Thumbnail as Album Art</span>
+            <span>Embed HD Album Artwork</span>
           </label>
         </div>
 
@@ -163,7 +226,7 @@
               <label>End (sec):</label>
               <input type="number" id="trimEnd" placeholder="Full" min="0">
             </div>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">(Leave blank to convert full audio)</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(Leave blank to convert full audio track)</span>
           </div>
         </div>
       </section>
@@ -171,13 +234,13 @@
       <!-- Progress Card (During conversion) -->
       <section id="progressCard" class="progress-card">
         <div class="progress-header">
-          <span class="progress-title">Converting Audio...</span>
+          <span class="progress-title">Converting Audio Stream...</span>
           <span id="progressPct" class="progress-percentage">0%</span>
         </div>
         <div class="progress-track">
           <div id="progressBar" class="progress-bar-fill"></div>
         </div>
-        <p id="progressStatus" class="progress-status-text">Connecting to YouTube...</p>
+        <p id="progressStatus" class="progress-status-text">Connecting to cluster...</p>
       </section>
 
       <!-- Completed Result Card -->
@@ -252,41 +315,101 @@
       </div>
       <div id="historyList" class="history-list">
         <!-- Rendered dynamically -->
-        <div class="empty-history">No converted songs yet in this session. Drop a YouTube link above!</div>
+        <div class="empty-history">No converted songs yet in this session. Drop a YouTube or Spotify link above!</div>
       </div>
     </section>
 
-    <!-- Features / Supported Links Section -->
-    <section class="features-section">
+    <!-- How It Works Section -->
+    <section class="info-section" id="howItWorks">
+      <h2 class="section-title">How to Convert in 3 Easy Steps</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">01</div>
+          <h4>Copy Track Link</h4>
+          <p>Find your favorite song or video on YouTube, Shorts, or Spotify and copy its share link.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">02</div>
+          <h4>Paste & Customize</h4>
+          <p>Paste the link into the converter. Preview album art, edit title/artist, or select up to 320kbps bitrate.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">03</div>
+          <h4>Download MP3</h4>
+          <p>Click "Convert to MP3". In seconds, your studio-quality, fully tagged MP3 is ready to download or play.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-section" id="features">
+      <h2 class="section-title">Engineered for Studio Quality</h2>
       <div class="features-grid">
         <div class="feature-box">
-          <div class="feature-icon">
+          <div class="feature-icon red">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
           </div>
           <h4>Studio 320 kbps MP3</h4>
-          <p>Converts YouTube audio directly to maximum bitrate MP3 with clean dynamics and zero loss in fidelity.</p>
+          <p>Encoded with FFmpeg's pristine libmp3lame encoder for full dynamic range, deep bass, and clear highs.</p>
         </div>
 
         <div class="feature-box">
-          <div class="feature-icon">
+          <div class="feature-icon green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
+          <h4>YouTube & Spotify Support</h4>
+          <p>Dual-platform compatibility allows dropping links from both YouTube and Spotify into one single tool.</p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-icon purple">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           </div>
-          <h4>ID3 Tags & Cover Art</h4>
-          <p>Automatically tags MP3 with song title, artist/channel name, and embeds HD album artwork into the file.</p>
+          <h4>ID3 Tags & HD Artwork</h4>
+          <p>Embeds title, artist, album, and high-resolution 640x640 album artwork compatible with Apple Music, Spotify, and car players.</p>
         </div>
 
         <div class="feature-box">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          <div class="feature-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           </div>
-          <h4>All YouTube Links</h4>
-          <p>Supports youtu.be share links, standard youtube.com URLs, YouTube Shorts, and YouTube Music links.</p>
+          <h4>Privacy & Zero Disk Bloat</h4>
+          <p>100% ephemeral processing in volatile memory. Files are immediately destroyed once downloaded.</p>
         </div>
       </div>
     </section>
+
+    <!-- FAQ Section -->
+    <section class="info-section" id="faq">
+      <h2 class="section-title">Frequently Asked Questions</h2>
+      <div class="faq-list">
+        <div class="faq-item">
+          <h4>How do I convert a Spotify song?</h4>
+          <p>Simply copy the Spotify track link (e.g. from the Spotify app or web player by clicking Share → Copy Song Link) and paste it into the converter. Link2Audio automatically resolves the song metadata and converts it into a high-quality MP3.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Do I need to install any extension or create an account?</h4>
+          <p>No. Link2Audio is 100% web-based. There are no extensions to install, no accounts to create, and no cookies required.</p>
+        </div>
+        <div class="faq-item">
+          <h4>What audio bitrates can I choose from?</h4>
+          <p>You can choose between 320 kbps (Studio Quality), 256 kbps (High Fidelity), 192 kbps (Standard), or 128 kbps (Compact size).</p>
+        </div>
+        <div class="faq-item">
+          <h4>Does this work on smartphones and tablets?</h4>
+          <p>Yes. The site is fully responsive and optimized for iPhones, Android devices, iPads, tablets, and desktop browsers.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-content">
+        <p class="footer-brand">Link2Audio &bull; YouTube & Spotify to MP3 Converter</p>
+        <p class="footer-sub">For personal and educational use. Fast, private, zero permanent storage.</p>
+      </div>
+    </footer>
   </div>
-
-
 
   <!-- Toast Notifications Container -->
   <div id="toastContainer" class="toast-container"></div>

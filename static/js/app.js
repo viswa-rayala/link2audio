@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const previewCard = document.getElementById('previewCard');
   const previewThumb = document.getElementById('previewThumb');
   const previewDuration = document.getElementById('previewDuration');
+  const platformBadge = document.getElementById('platformBadge');
   const editTitle = document.getElementById('editTitle');
   const editArtist = document.getElementById('editArtist');
   const qualitySelect = document.getElementById('qualitySelect');
@@ -103,13 +104,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function extractVideoId(url) {
     if (!url) return null;
-    const regExp = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+    const regExp = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
     const match = url.trim().match(regExp);
     return match ? match[1] : null;
   }
 
-  function isYouTubeUrl(url) {
-    return !!extractVideoId(url);
+  function extractSpotifyId(url) {
+    if (!url) return null;
+    const regExp = /(?:open\.spotify\.com\/(?:intl-[a-z]{2,5}\/)?track\/|spotify:track:)([a-zA-Z0-9]{22})/i;
+    const match = url.trim().match(regExp);
+    return match ? match[1] : null;
+  }
+
+  function isSupportedUrl(url) {
+    return !!extractVideoId(url) || !!extractSpotifyId(url);
   }
 
   // --- Drag and Drop Handling ---
@@ -148,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
   urlInput.addEventListener('input', () => {
     const val = urlInput.value.trim();
     clearBtn.style.display = val ? 'flex' : 'none';
-    if (isYouTubeUrl(val)) {
+    if (isSupportedUrl(val)) {
       fetchVideoInfo(val);
     }
   });
@@ -188,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (val) {
       fetchVideoInfo(val);
     } else {
-      showToast('Please enter or drop a YouTube link', 'error');
+      showToast('Please enter or drop a YouTube or Spotify link', 'error');
     }
   });
 
@@ -218,8 +226,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function fetchVideoInfo(url) {
     const videoId = extractVideoId(url);
-    if (!videoId) {
-      showToast('Please provide a valid YouTube URL (e.g. youtu.be or youtube.com)', 'error');
+    const spotifyId = extractSpotifyId(url);
+    if (!videoId && !spotifyId) {
+      showToast('Please provide a valid YouTube or Spotify link (e.g. youtu.be, youtube.com, or open.spotify.com/track/...)', 'error');
       return;
     }
 
@@ -263,8 +272,30 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Backend /api/info busy or unreachable, trying direct lookup...', backendErr);
       }
 
-      // 2. Direct browser-side YouTube oEmbed fallback if backend was busy
-      if (!fetchedData) {
+      // 2. Direct browser-side fallback if backend was busy
+      if (!fetchedData && spotifyId) {
+        try {
+          const sResp = await fetch(`https://open.spotify.com/oembed?url=https://open.spotify.com/track/${spotifyId}`);
+          if (sResp.ok) {
+            const sData = await sResp.json();
+            fetchedData = {
+              id: spotifyId,
+              platform: 'spotify',
+              url: `https://open.spotify.com/track/${spotifyId}`,
+              title: sData.title || 'Spotify Track',
+              author: 'Spotify Artist',
+              duration: null,
+              duration_formatted: 'Ready to convert',
+              thumbnail: sData.thumbnail_url || '',
+              view_count: 0
+            };
+          }
+        } catch (sErr) {
+          console.warn('Direct Spotify oembed note:', sErr);
+        }
+      }
+
+      if (!fetchedData && videoId) {
         try {
           const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
           const oResp = await fetch(oembedUrl);
@@ -272,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const oData = await oResp.json();
             fetchedData = {
               id: videoId,
+              platform: 'youtube',
               url: `https://www.youtube.com/watch?v=${videoId}`,
               title: oData.title || 'YouTube Audio',
               author: oData.author_name || 'YouTube Creator',
@@ -282,21 +314,31 @@ document.addEventListener('DOMContentLoaded', () => {
             };
           }
         } catch (oErr) {
-          console.warn('Direct oembed fallback note:', oErr);
+          console.warn('Direct YouTube oembed fallback note:', oErr);
         }
       }
 
       if (!fetchedData) {
-        throw new Error('Could not fetch video details. Please ensure the backend server is running.');
+        throw new Error('Could not fetch track details. Please check the URL or ensure the backend server is running.');
       }
 
       currentVideoData = fetchedData;
 
       // Populate preview card
-      previewThumb.src = currentVideoData.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      previewThumb.src = currentVideoData.thumbnail || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
       previewDuration.textContent = currentVideoData.duration_formatted || 'Ready';
-      editTitle.value = currentVideoData.title || 'YouTube Audio';
-      editArtist.value = currentVideoData.author || 'YouTube';
+      editTitle.value = currentVideoData.title || (currentVideoData.platform === 'spotify' ? 'Spotify Track' : 'YouTube Audio');
+      editArtist.value = currentVideoData.author || (currentVideoData.platform === 'spotify' ? 'Spotify Artist' : 'YouTube');
+
+      if (platformBadge) {
+        if (currentVideoData.platform === 'spotify') {
+          platformBadge.textContent = 'Spotify Track';
+          platformBadge.className = 'platform-badge-tag spotify';
+        } else {
+          platformBadge.textContent = 'YouTube Video';
+          platformBadge.className = 'platform-badge-tag youtube';
+        }
+      }
 
       if (currentVideoData.duration) {
         trimEnd.max = currentVideoData.duration;
@@ -531,7 +573,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderHistory(items) {
     if (!items || items.length === 0) {
-      historyList.innerHTML = `<div class="empty-history">No converted songs yet in this session. Drop a YouTube link above!</div>`;
+      historyList.innerHTML = `<div class="empty-history">No converted songs yet in this session. Drop a YouTube or Spotify link above!</div>`;
       return;
     }
 
@@ -541,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="history-details">
           <div class="history-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
           <div class="history-sub">
-            <span>${escapeHtml(item.artist || 'YouTube')}</span>
+            <span>${escapeHtml(item.artist || 'Audio Track')}</span>
             <span>•</span>
             <span>${escapeHtml(item.file_size_formatted || '')}</span>
             <span>•</span>
@@ -600,6 +642,22 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error(err);
     }
+  });
+
+  // --- Navigation Links Smooth Scroll & Active Indicator ---
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      const targetId = link.getAttribute('href');
+      if (targetId && targetId.startsWith('#')) {
+        const targetEl = document.querySelector(targetId);
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+          link.classList.add('active');
+        }
+      }
+    });
   });
 
   // Initial load
