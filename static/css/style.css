@@ -1313,6 +1313,82 @@ body {
   gap: 10px;
 }
 
+/* Format Selection Row & Toggle Buttons */
+.format-selection-group {
+  margin: 14px 0 16px 0;
+}
+
+.format-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.format-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.format-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.format-btn.active {
+  background: rgba(255, 26, 64, 0.15);
+  border-color: var(--accent-red);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(255, 26, 64, 0.25);
+}
+
+.format-btn[data-format="mp4"].active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.25);
+}
+
+.platform-tag.video-tag {
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.platform-tag.video-tag:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.meta-pill.format-badge {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.meta-pill.format-badge.mp4 {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.meta-pill.format-badge.mp3 {
+  background: rgba(255, 26, 64, 0.15);
+  color: #ff6b81;
+  border-color: rgba(255, 26, 64, 0.3);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .app-title {

@@ -15,8 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const editTitle = document.getElementById('editTitle');
   const editArtist = document.getElementById('editArtist');
   const qualitySelect = document.getElementById('qualitySelect');
+  const qualityLabel = document.getElementById('qualityLabel');
   const embedCoverCheck = document.getElementById('embedCoverCheck');
+  const embedCoverGroup = document.getElementById('embedCoverGroup');
   const convertBtn = document.getElementById('convertBtn');
+  const convertBtnText = document.getElementById('convertBtnText');
+  const convertBtnIcon = document.getElementById('convertBtnIcon');
+  const formatMp3Btn = document.getElementById('formatMp3Btn');
+  const formatMp4Btn = document.getElementById('formatMp4Btn');
   
   const trimToggle = document.getElementById('trimToggle');
   const trimContent = document.getElementById('trimContent');
@@ -37,10 +43,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultSize = document.getElementById('resultSize');
   const resultDuration = document.getElementById('resultDuration');
   const downloadBtn = document.getElementById('downloadBtn');
+  const downloadBtnText = document.getElementById('downloadBtnText');
   const copyLinkBtn = document.getElementById('copyLinkBtn');
   const convertAnotherBtn = document.getElementById('convertAnotherBtn');
 
-  // Audio Player Elements
+  // Video & Audio Player Elements
+  const resultVideo = document.getElementById('resultVideo');
+  const audioPlayerBox = document.getElementById('audioPlayerBox');
   const nativeAudio = document.getElementById('nativeAudio');
   const playerPlayBtn = document.getElementById('playerPlayBtn');
   const playIcon = document.getElementById('playIcon');
@@ -57,6 +66,49 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentVideoData = null;
   let activePollInterval = null;
   let activeJobId = null;
+  let selectedFormat = 'mp3';
+
+  // --- Format Selection Logic ---
+  function setFormat(fmt) {
+    selectedFormat = fmt;
+    if (fmt === 'mp4') {
+      if (formatMp4Btn) formatMp4Btn.classList.add('active');
+      if (formatMp3Btn) formatMp3Btn.classList.remove('active');
+      if (convertBtnText) convertBtnText.textContent = 'Convert to MP4 Video';
+      if (convertBtnIcon) {
+        convertBtnIcon.innerHTML = `<polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>`;
+      }
+      if (qualityLabel) qualityLabel.textContent = 'Video Quality / Resolution';
+      if (embedCoverGroup) embedCoverGroup.style.display = 'none';
+      if (qualitySelect) {
+        qualitySelect.innerHTML = `
+          <option value="720" selected>720p HD (High Definition • Recommended)</option>
+          <option value="1080">1080p Full HD (Best Available)</option>
+          <option value="480">480p SD (Standard Resolution)</option>
+        `;
+      }
+    } else {
+      if (formatMp3Btn) formatMp3Btn.classList.add('active');
+      if (formatMp4Btn) formatMp4Btn.classList.remove('active');
+      if (convertBtnText) convertBtnText.textContent = 'Convert to MP3';
+      if (convertBtnIcon) {
+        convertBtnIcon.innerHTML = `<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>`;
+      }
+      if (qualityLabel) qualityLabel.textContent = 'Audio Bitrate / Quality';
+      if (embedCoverGroup) embedCoverGroup.style.display = 'flex';
+      if (qualitySelect) {
+        qualitySelect.innerHTML = `
+          <option value="320" selected>320 kbps (Studio Quality • Recommended)</option>
+          <option value="256">256 kbps (High Fidelity)</option>
+          <option value="192">192 kbps (Standard MP3)</option>
+          <option value="128">128 kbps (Compact Size)</option>
+        `;
+      }
+    }
+  }
+
+  if (formatMp3Btn) formatMp3Btn.addEventListener('click', () => setFormat('mp3'));
+  if (formatMp4Btn) formatMp4Btn.addEventListener('click', () => setFormat('mp4'));
 
   // --- Utility Functions ---
 
@@ -362,13 +414,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // --- API: Convert to MP3 ---
+  // --- API: Convert to MP3 / MP4 ---
 
   convertBtn.addEventListener('click', async () => {
     if (!currentVideoData) return;
 
     const payload = {
       url: currentVideoData.url,
+      format: selectedFormat,
       quality: qualitySelect.value,
       title: editTitle.value.trim(),
       artist: editArtist.value.trim(),
@@ -383,7 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     progressCard.style.display = 'block';
     progressPct.textContent = '0%';
     progressBar.style.width = '0%';
-    progressStatus.textContent = 'Initializing converter...';
+    progressStatus.textContent = selectedFormat === 'mp4' ? 'Connecting to video converter...' : 'Connecting to audio converter...';
     progressCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     try {
@@ -455,24 +508,46 @@ document.addEventListener('DOMContentLoaded', () => {
     resultCard.style.display = 'block';
     resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
+    const isMp4 = job.format === 'mp4';
+
     // Populate result card
     resultThumb.src = job.thumbnail || currentVideoData?.thumbnail || '';
     resultTitle.textContent = job.title;
-    resultArtist.textContent = job.artist || 'Unknown Artist';
-    resultBitrate.textContent = job.quality || '320 kbps';
-    resultSize.textContent = job.file_size_formatted || 'Audio File';
+    resultArtist.textContent = job.artist || (isMp4 ? 'Video File' : 'Audio Track');
+    resultBitrate.textContent = job.quality || (isMp4 ? '720p HD' : '320 kbps');
+    resultSize.textContent = job.file_size_formatted || (isMp4 ? 'Video File' : 'Audio File');
     resultDuration.textContent = job.duration_formatted || '';
 
     // Setup download button
     const downloadUrl = `/api/download/${job.id}`;
     downloadBtn.href = downloadUrl;
-    downloadBtn.setAttribute('download', job.filename || `${job.title}.mp3`);
+    downloadBtn.setAttribute('download', job.filename || `${job.title}.${isMp4 ? 'mp4' : 'mp3'}`);
+    if (downloadBtnText) {
+      downloadBtnText.textContent = isMp4 ? 'Download MP4 Video' : 'Download MP3 Audio';
+    }
 
-    // Setup Audio Player
+    // Setup Media Player
     const streamUrl = `/api/stream/${job.id}`;
-    nativeAudio.src = streamUrl;
-    nativeAudio.load();
-    resetAudioPlayer();
+    if (isMp4) {
+      pauseAudio();
+      if (audioPlayerBox) audioPlayerBox.style.display = 'none';
+      if (resultVideo) {
+        resultVideo.style.display = 'block';
+        resultVideo.src = streamUrl;
+      }
+      showToast('MP4 Video ready! Play preview or download below.', 'success');
+    } else {
+      if (resultVideo) {
+        resultVideo.pause();
+        resultVideo.src = '';
+        resultVideo.style.display = 'none';
+      }
+      if (audioPlayerBox) audioPlayerBox.style.display = 'block';
+      nativeAudio.src = streamUrl;
+      nativeAudio.load();
+      resetAudioPlayer();
+      showToast('Conversion ready! Click Download MP3 or play preview below.', 'success');
+    }
 
     // Setup Copy Link
     copyLinkBtn.onclick = () => {
@@ -482,7 +557,6 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     };
 
-    showToast('Conversion ready! Click Download MP3 or play preview below.', 'success');
     loadHistory();
   }
 
@@ -547,6 +621,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   convertAnotherBtn.addEventListener('click', () => {
     pauseAudio();
+    if (resultVideo) {
+      resultVideo.pause();
+      resultVideo.src = '';
+      resultVideo.style.display = 'none';
+    }
     resultCard.style.display = 'none';
     previewCard.style.display = 'none';
     progressCard.style.display = 'none';
@@ -577,24 +656,27 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    historyList.innerHTML = items.map(item => `
+    historyList.innerHTML = items.map(item => {
+      const isMp4 = item.format === 'mp4';
+      return `
       <div class="history-item">
         <img class="history-thumb" src="${escapeHtml(item.thumbnail)}" alt="Cover" onerror="this.src='data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'52\' height=\'52\' fill=\'%23333\'><rect width=\'52\' height=\'52\'/></svg>'">
         <div class="history-details">
           <div class="history-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
           <div class="history-sub">
-            <span>${escapeHtml(item.artist || 'Audio Track')}</span>
+            <span class="meta-pill format-badge ${isMp4 ? 'mp4' : 'mp3'}">${escapeHtml((item.format || 'mp3').toUpperCase())}</span>
+            <span>${escapeHtml(item.artist || (isMp4 ? 'Video File' : 'Audio Track'))}</span>
             <span>•</span>
             <span>${escapeHtml(item.file_size_formatted || '')}</span>
             <span>•</span>
-            <span>${escapeHtml(item.quality || '320 kbps')}</span>
+            <span>${escapeHtml(item.quality || (isMp4 ? '720p HD' : '320 kbps'))}</span>
           </div>
         </div>
         <div class="history-actions">
-          <button class="btn-icon history-play-btn" data-id="${item.id}" title="Preview audio">
+          <button class="btn-icon history-play-btn" data-id="${item.id}" data-format="${item.format || 'mp3'}" title="Preview">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           </button>
-          <a href="/api/download/${item.id}" download="${escapeHtml(item.filename || 'audio.mp3')}" class="btn-icon" title="Download MP3">
+          <a href="/api/download/${item.id}" download="${escapeHtml(item.filename || (isMp4 ? 'video.mp4' : 'audio.mp3'))}" class="btn-icon" title="Download">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </a>
           <button class="btn-icon history-del-btn" data-id="${item.id}" title="Delete file">
@@ -602,15 +684,38 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
         </div>
       </div>
-    `).join('');
+    `;}).join('');
 
     // Attach listeners for history action buttons
     document.querySelectorAll('.history-play-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-id');
-        nativeAudio.src = `/api/stream/${id}`;
-        playAudio();
-        showToast('Playing preview from library', 'info');
+        const fmt = btn.getAttribute('data-format') || 'mp3';
+        const streamUrl = `/api/stream/${id}`;
+        
+        if (fmt === 'mp4') {
+          pauseAudio();
+          if (audioPlayerBox) audioPlayerBox.style.display = 'none';
+          if (resultVideo) {
+            resultVideo.style.display = 'block';
+            resultVideo.src = streamUrl;
+            resultVideo.play().catch(e => console.warn(e));
+          }
+          resultCard.style.display = 'block';
+          if (resultVideo) resultVideo.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          showToast('Playing MP4 video preview', 'info');
+        } else {
+          if (resultVideo) {
+            resultVideo.pause();
+            resultVideo.src = '';
+            resultVideo.style.display = 'none';
+          }
+          if (audioPlayerBox) audioPlayerBox.style.display = 'block';
+          nativeAudio.src = streamUrl;
+          playAudio();
+          resultCard.style.display = 'block';
+          showToast('Playing MP3 audio preview', 'info');
+        }
       });
     });
 

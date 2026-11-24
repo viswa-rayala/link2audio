@@ -274,16 +274,174 @@ def get_ytmp3_key(force_refresh: bool = False) -> str:
         print(f"Dynamic ytmp3 key fetch note: {e}")
     return _cached_ytmp3_key or "ytmp3_9243bb365836f75a94b74494405da4575fdea0290bf6206cac235a46c68a3dc3"
 
-def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, raw_output_path: str) -> Dict[str, Any]:
+def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, raw_output_path: str, format_type: str = "mp3") -> Dict[str, Any]:
     """
-    Direct audio resolution engine utilizing multi-cluster failover:
-    Strategy 1: TubeAPI / 123tokyo cluster (Fastest, <1s response, global CDN stream)
-    Strategy 2: etacloud.org cluster (Official y2mate.gs upstream)
-    Strategy 3: gammacloud.net cluster (Official ytmp3.gl upstream)
-    Strategy 4: Cloudflare worker fallback
+    Direct media resolution engine utilizing multi-cluster failover:
+    For MP4 Video:
+      Strategy 1: gammacloud.net cluster (f=mp4, fast HD video)
+      Strategy 2: eta.etacloud.org cluster (f=mp4)
+      Strategy 3: Cloudflare worker fallback (f=mp4)
+    For MP3 Audio:
+      Strategy 1: TubeAPI / 123tokyo cluster (Fastest, <1s response, global CDN stream)
+      Strategy 2: etacloud.org cluster (Official y2mate.gs upstream)
+      Strategy 3: gammacloud.net cluster (Official ytmp3.gl upstream)
+      Strategy 4: Cloudflare worker fallback
     """
     ctx = ssl.create_default_context()
     
+    # --- MP4 Video Engine ---
+    if format_type.lower() == "mp4":
+        # Strategy 1: Gammacloud cluster for MP4
+        try:
+            job['status_text'] = "Connecting to high-speed MP4 video cluster..."
+            job['progress'] = 25
+            g_key = get_ytmp3_key()
+            g_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://ytmp3.gl/",
+                "Origin": "https://ytmp3.gl"
+            }
+            auth_url = f"https://gamma.gammacloud.net/api/v1/auth?api_key={g_key}&_={int(time.time()*1000)}"
+            req = urllib.request.Request(auth_url, headers=g_headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                auth_data = json.loads(r.read().decode("utf-8"))
+            bearer = auth_data.get("key")
+            if bearer:
+                init_headers = dict(g_headers)
+                init_headers["Authorization"] = f"Bearer {bearer}"
+                init_req = urllib.request.Request(f"https://gamma.gammacloud.net/api/v1/init?_={int(time.time()*1000)}", headers=init_headers)
+                with urllib.request.urlopen(init_req, context=ctx, timeout=8) as r:
+                    init_data = json.loads(r.read().decode("utf-8"))
+                convert_url = init_data.get("convertURL")
+                if convert_url:
+                    job['status_text'] = "Converting video to MP4..."
+                    job['progress'] = 35
+                    c_url = f"{convert_url}&v={video_id}&f=mp4&_={int(time.time()*1000)}"
+                    c_req = urllib.request.Request(c_url, headers=g_headers)
+                    with urllib.request.urlopen(c_req, context=ctx, timeout=10) as r:
+                        c_data = json.loads(r.read().decode("utf-8"))
+                    prog_url = c_data.get("progressURL")
+                    dl_url = c_data.get("downloadURL")
+                    title = c_data.get("title") or ""
+                    
+                    if prog_url:
+                        for step in range(25):
+                            time.sleep(1.5)
+                            p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=g_headers)
+                            try:
+                                with urllib.request.urlopen(p_req, context=ctx, timeout=8) as pr:
+                                    p_data = json.loads(pr.read().decode("utf-8"))
+                                    job['progress'] = min(35 + (step * 2), 68)
+                                    if p_data.get("title") and not title:
+                                        title = p_data.get("title")
+                                    if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
+                                        dl_url = p_data.get("downloadURL") or dl_url
+                                        break
+                            except Exception as pe:
+                                print(f"MP4 gammacloud poll note: {pe}")
+                    if dl_url:
+                        job['status'] = 'downloading'
+                        job['progress'] = 70
+                        job['status_text'] = 'Streaming high-definition MP4 video data...'
+                        dl_req = urllib.request.Request(dl_url, headers=g_headers)
+                        with urllib.request.urlopen(dl_req, context=ctx, timeout=120) as dl_resp:
+                            with open(raw_output_path, "wb") as f:
+                                while True:
+                                    chunk = dl_resp.read(65536)
+                                    if not chunk: break
+                                    f.write(chunk)
+                        if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 100000:
+                            return {"title": title, "format": "mp4"}
+        except Exception as e:
+            print(f"Gammacloud MP4 note: {e}")
+
+        # Strategy 2: Etacloud cluster for MP4
+        try:
+            job['status_text'] = "Trying secondary MP4 video cluster..."
+            job['progress'] = 30
+            y_key = get_y2mate_key()
+            y_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://y2mate.gs/",
+                "Origin": "https://y2mate.gs"
+            }
+            auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={y_key}&_={int(time.time()*1000)}"
+            req = urllib.request.Request(auth_url, headers=y_headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                auth_data = json.loads(r.read().decode("utf-8"))
+            bearer = auth_data.get("key")
+            if bearer:
+                init_headers = dict(y_headers)
+                init_headers["Authorization"] = f"Bearer {bearer}"
+                init_req = urllib.request.Request(f"https://eta.etacloud.org/api/v1/init?_={int(time.time()*1000)}", headers=init_headers)
+                with urllib.request.urlopen(init_req, context=ctx, timeout=8) as r:
+                    init_data = json.loads(r.read().decode("utf-8"))
+                convert_url = init_data.get("convertURL")
+                if convert_url:
+                    c_url = f"{convert_url}&v={video_id}&f=mp4&_={int(time.time()*1000)}"
+                    c_req = urllib.request.Request(c_url, headers=y_headers)
+                    with urllib.request.urlopen(c_req, context=ctx, timeout=10) as r:
+                        c_data = json.loads(r.read().decode("utf-8"))
+                    prog_url = c_data.get("progressURL")
+                    dl_url = c_data.get("downloadURL")
+                    title = c_data.get("title") or ""
+                    if prog_url:
+                        for step in range(25):
+                            time.sleep(1.5)
+                            p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=y_headers)
+                            try:
+                                with urllib.request.urlopen(p_req, context=ctx, timeout=8) as pr:
+                                    p_data = json.loads(pr.read().decode("utf-8"))
+                                    job['progress'] = min(35 + (step * 2), 68)
+                                    if p_data.get("title") and not title:
+                                        title = p_data.get("title")
+                                    if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
+                                        dl_url = p_data.get("downloadURL") or dl_url
+                                        break
+                            except Exception as pe:
+                                print(f"MP4 etacloud poll note: {pe}")
+                    if dl_url:
+                        job['status'] = 'downloading'
+                        job['progress'] = 70
+                        job['status_text'] = 'Streaming high-definition MP4 video data...'
+                        dl_req = urllib.request.Request(dl_url, headers=y_headers)
+                        with urllib.request.urlopen(dl_req, context=ctx, timeout=120) as dl_resp:
+                            with open(raw_output_path, "wb") as f:
+                                while True:
+                                    chunk = dl_resp.read(65536)
+                                    if not chunk: break
+                                    f.write(chunk)
+                        if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 100000:
+                            return {"title": title, "format": "mp4"}
+        except Exception as e:
+            print(f"Etacloud MP4 note: {e}")
+
+        # Strategy 3: Cloudflare Worker for MP4
+        try:
+            now_ms = int(time.time() * 1000)
+            worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={get_y2mate_key()}&v={video_id}&f=mp4&_={now_ms}"
+            req = urllib.request.Request(worker_init_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            if data.get("error", 0) == 0:
+                download_url = data.get("downloadURL")
+                title = data.get("title") or ""
+                if download_url:
+                    dl_req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
+                    with urllib.request.urlopen(dl_req, context=ctx, timeout=120) as dl_resp:
+                        with open(raw_output_path, "wb") as f:
+                            while True:
+                                chunk = dl_resp.read(65536)
+                                if not chunk: break
+                                f.write(chunk)
+                    if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 100000:
+                        return {"title": title, "format": "mp4"}
+        except Exception as e:
+            print(f"Worker MP4 strategy note: {e}")
+
+        raise Exception("Could not resolve MP4 video stream via converter engines")
+
+    # --- MP3 Audio Engine ---
     # 1. Strategy 1: TubeAPI / 123tokyo Cluster (Ultra fast, verified cloud deployment safe)
     try:
         job['status_text'] = "Connecting to high-speed audio resolver..."
@@ -541,7 +699,8 @@ class InfoRequest(BaseModel):
 
 class ConvertRequest(BaseModel):
     url: str
-    quality: str = "320" # 128, 192, 256, 320
+    format: str = "mp3" # "mp3" or "mp4"
+    quality: str = "320" # 128, 192, 256, 320 for mp3; 720, auto for mp4
     title: Optional[str] = None
     artist: Optional[str] = None
     embed_thumbnail: bool = True
@@ -616,29 +775,32 @@ def get_video_info(req: InfoRequest):
 
 def run_conversion_job(job_id: str, req: ConvertRequest):
     """
-    Seamless worker task that converts YouTube & Spotify links to studio-grade MP3.
-    Uses the high-speed cloud worker engine as primary resolver to completely
+    Seamless worker task that converts YouTube & Spotify links to studio-grade MP3 or MP4 video.
+    Uses high-speed cloud clusters as primary resolvers to completely
     bypass YouTube bot blocks on datacenter IPs without requiring cookies.
     """
     job = jobs[job_id]
     job['status'] = 'downloading'
     job['progress'] = 10
-    job['status_text'] = 'Analyzing audio source...'
+    job['status_text'] = 'Analyzing media source...'
 
     url_str = req.url.strip()
     spotify_id = extract_spotify_id(url_str)
+    format_type = req.format.lower() if req.format and req.format.lower() in ["mp4", "video"] else "mp3"
+    job['format'] = format_type
+    ext = "mp4" if format_type == "mp4" else "mp3"
 
     try:
         out_base = str(TEMP_DIR / job_id)
-        raw_mp3_path = f"{out_base}_raw.mp3"
-        final_mp3_path = Path(f"{out_base}.mp3")
-        quality = req.quality if req.quality in ["128", "192", "256", "320"] else "320"
+        raw_output_path = f"{out_base}_raw.{ext}"
+        final_file_path = Path(f"{out_base}.{ext}")
+        quality = req.quality if req.quality in ["128", "192", "256", "320", "720", "1080"] else ("720" if format_type == "mp4" else "320")
         
         video_id = None
         duration = None
         
         if spotify_id:
-            job['status_text'] = 'Matching Spotify track to high-fidelity audio stream...'
+            job['status_text'] = f"Matching Spotify track to high-fidelity {'video' if format_type == 'mp4' else 'audio'} stream..."
             job['progress'] = 15
             spot_meta = fetch_spotify_track_info(spotify_id)
             video_title = req.title.strip() if req.title and req.title.strip() else (spot_meta.get("title") if spot_meta else "Spotify Track")
@@ -649,23 +811,22 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
             # Find corresponding YouTube video ID
             video_id = search_youtube_for_track(video_artist, video_title)
             if not video_id:
-                raise Exception(f"Could not find an audio stream matching '{video_artist} - {video_title}'")
+                raise Exception(f"Could not find a media stream matching '{video_artist} - {video_title}'")
             clean_url = f"https://www.youtube.com/watch?v={video_id}"
         else:
             clean_url = clean_youtube_url(url_str)
             video_id = extract_video_id(clean_url)
             fast_meta = fetch_fast_video_info(video_id) if video_id else None
-            video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else "YouTube Audio")
+            video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else ("YouTube Video" if format_type == "mp4" else "YouTube Audio"))
             video_artist = req.artist.strip() if req.artist and req.artist.strip() else (fast_meta.get("author") if fast_meta else "YouTube")
             thumbnail_url = fast_meta.get("thumbnail") if fast_meta else (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else "")
 
         converted_via_worker = False
 
-        # 1. Primary Engine: High-speed Cloudflare Worker (inspired by y2mate.gs)
-        # Avoids YouTube datacenter IP blocks on Render completely without cookies
+        # 1. Primary Engine: High-speed Multi-cluster Resolvers (Gammacloud / Etacloud / TubeAPI)
         if video_id:
             try:
-                worker_res = fetch_via_converter_api(video_id, job, quality, raw_mp3_path)
+                worker_res = fetch_via_converter_api(video_id, job, quality, raw_output_path, format_type=format_type)
                 if not spotify_id and worker_res.get("title") and (not req.title or not req.title.strip()):
                     video_title = worker_res["title"]
                 if not duration and worker_res.get("duration"):
@@ -673,43 +834,58 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                 converted_via_worker = True
             except Exception as worker_err:
                 print(f"Converter worker note ({worker_err}), falling back to secondary yt-dlp...")
-                if os.path.exists(raw_mp3_path):
+                if os.path.exists(raw_output_path):
                     try:
-                        os.remove(raw_mp3_path)
+                        os.remove(raw_output_path)
                     except Exception:
                         pass
 
-        # 2. Secondary Engine: Local yt-dlp fallback (visionOS / Android profiles)
+        # 2. Secondary Engine: Local yt-dlp fallback
         if not converted_via_worker:
-            job['status_text'] = 'Resolving audio stream via secondary engine...'
-            raw_output = f"{out_base}.%(ext)s"
+            job['status_text'] = f"Resolving {ext.upper()} stream via secondary engine..."
             client_profiles = [
+                ['android'],
                 ['visionos'],
                 ['tv_embedded'],
-                ['android_creator'],
-                ['android']
+                ['android_creator']
             ]
             meta = None
             last_err = None
             for profile in client_profiles:
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': raw_output,
-                    'socket_timeout': 30,
-                    'extractor_args': {
-                        'youtube': {
-                            'player_client': profile,
-                            'player_skip': ['web', 'mweb']
-                        }
-                    },
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': quality,
-                    }],
-                    'quiet': True,
-                    'no_warnings': True,
-                }
+                if format_type == "mp4":
+                    ydl_opts = {
+                        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                        'outtmpl': str(final_file_path),
+                        'socket_timeout': 30,
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': profile,
+                                'player_skip': ['web', 'mweb']
+                            }
+                        },
+                        'quiet': True,
+                        'no_warnings': True,
+                    }
+                else:
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': f"{out_base}.%(ext)s",
+                        'socket_timeout': 30,
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': profile,
+                                'player_skip': ['web', 'mweb']
+                            }
+                        },
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': quality,
+                        }],
+                        'quiet': True,
+                        'no_warnings': True,
+                    }
+
                 if shutil.which("node"):
                     ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
                     ydl_opts['remote_components'] = ['ejs:github']
@@ -728,110 +904,128 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                 except Exception as err:
                     last_err = err
                     continue
-            if not meta and not final_mp3_path.exists():
+            if not meta and not final_file_path.exists():
                 job['status'] = 'error'
-                job['error'] = f"Unable to extract audio for this video: {last_err or 'Stream blocked'}"
+                job['error'] = f"Unable to extract {ext.upper()} for this link: {last_err or 'Stream blocked'}"
                 job['status_text'] = job['error']
                 return
 
-        # If converted via worker, transcode / trim with FFmpeg to produce final_mp3_path
+        # 3. Processing / Transcoding / Trimming
         if converted_via_worker:
             job['progress'] = 80
             job['status'] = 'converting'
-            job['status_text'] = f'Encoding {quality}kbps MP3 audio with FFmpeg...'
-            
-            ffmpeg_cmd = ["ffmpeg", "-y", "-i", raw_mp3_path]
-            if req.trim_start is not None and req.trim_start > 0:
-                ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
-            if req.trim_end is not None and req.trim_end > 0:
-                ffmpeg_cmd.extend(["-to", str(req.trim_end)])
-            ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(final_mp3_path)])
-            
-            res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            if res.returncode != 0 or not final_mp3_path.exists():
-                # If re-encoding failed, move raw file to final
-                shutil.move(raw_mp3_path, str(final_mp3_path))
+            if format_type == "mp4":
+                if (req.trim_start is not None and req.trim_start > 0) or (req.trim_end is not None and req.trim_end > 0):
+                    job['status_text'] = 'Trimming MP4 video with FFmpeg...'
+                    ffmpeg_cmd = ["ffmpeg", "-y", "-i", raw_output_path]
+                    if req.trim_start is not None and req.trim_start > 0:
+                        ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
+                    if req.trim_end is not None and req.trim_end > 0:
+                        ffmpeg_cmd.extend(["-to", str(req.trim_end)])
+                    ffmpeg_cmd.extend(["-c:v", "libx264", "-c:a", "aac", str(final_file_path)])
+                    res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                    if res.returncode != 0 or not final_file_path.exists():
+                        shutil.move(raw_output_path, str(final_file_path))
+                    else:
+                        if os.path.exists(raw_output_path):
+                            os.remove(raw_output_path)
+                else:
+                    shutil.move(raw_output_path, str(final_file_path))
             else:
-                if os.path.exists(raw_mp3_path):
-                    os.remove(raw_mp3_path)
+                job['status_text'] = f'Encoding {quality}kbps MP3 audio with FFmpeg...'
+                ffmpeg_cmd = ["ffmpeg", "-y", "-i", raw_output_path]
+                if req.trim_start is not None and req.trim_start > 0:
+                    ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
+                if req.trim_end is not None and req.trim_end > 0:
+                    ffmpeg_cmd.extend(["-to", str(req.trim_end)])
+                ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(final_file_path)])
+                res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                if res.returncode != 0 or not final_file_path.exists():
+                    shutil.move(raw_output_path, str(final_file_path))
+                else:
+                    if os.path.exists(raw_output_path):
+                        os.remove(raw_output_path)
 
-        if not final_mp3_path.exists():
+        if not final_file_path.exists():
             job['status'] = 'error'
-            job['error'] = "MP3 conversion failed - output file could not be generated."
+            job['error'] = f"{ext.upper()} conversion failed - output file could not be generated."
             job['status_text'] = job['error']
             return
 
         # Trimming for yt-dlp path if requested
         if not converted_via_worker and (req.trim_start is not None or req.trim_end is not None):
             job['progress'] = 80
-            job['status_text'] = 'Trimming audio segment...'
-            trimmed_path = Path(f"{out_base}_trimmed.mp3")
-            ffmpeg_cmd = ["ffmpeg", "-y", "-i", str(final_mp3_path)]
+            job['status_text'] = 'Trimming media segment...'
+            trimmed_path = Path(f"{out_base}_trimmed.{ext}")
+            ffmpeg_cmd = ["ffmpeg", "-y", "-i", str(final_file_path)]
             if req.trim_start is not None and req.trim_start > 0:
                 ffmpeg_cmd.extend(["-ss", str(req.trim_start)])
             if req.trim_end is not None and req.trim_end > 0:
                 ffmpeg_cmd.extend(["-to", str(req.trim_end)])
-            ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(trimmed_path)])
+            if format_type == "mp4":
+                ffmpeg_cmd.extend(["-c:v", "libx264", "-c:a", "aac", str(trimmed_path)])
+            else:
+                ffmpeg_cmd.extend(["-c:a", "libmp3lame", "-b:a", f"{quality}k", str(trimmed_path)])
             res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if res.returncode == 0 and trimmed_path.exists():
-                final_mp3_path.unlink(missing_ok=True)
-                trimmed_path.rename(final_mp3_path)
+                final_file_path.unlink(missing_ok=True)
+                trimmed_path.rename(final_file_path)
 
-        # ID3 Tagging & Album Art with Mutagen
-        job['status'] = 'tagging'
-        job['progress'] = 90
-        job['status_text'] = 'Embedding ID3 metadata & album art...'
-
-        try:
-            audio = MP3(str(final_mp3_path), ID3=ID3)
+        # 4. ID3 Tagging (MP3 only)
+        if format_type == "mp3":
+            job['status'] = 'tagging'
+            job['progress'] = 90
+            job['status_text'] = 'Embedding ID3 metadata & album art...'
             try:
-                audio.add_tags()
-            except Exception:
-                pass
-
-            audio.tags.add(TIT2(encoding=3, text=video_title))
-            audio.tags.add(TPE1(encoding=3, text=video_artist))
-            audio.tags.add(TALB(encoding=3, text="Spotify Track" if spotify_id else "YouTube Audio"))
-
-            if req.embed_thumbnail and thumbnail_url:
+                audio = MP3(str(final_file_path), ID3=ID3)
                 try:
-                    thumb_req = urllib.request.Request(
-                        thumbnail_url,
-                        headers={'User-Agent': 'Mozilla/5.0'}
-                    )
-                    with urllib.request.urlopen(thumb_req, timeout=6) as resp:
-                        img_data = resp.read()
-                        mime = 'image/jpeg' if ('jpg' in thumbnail_url or 'jpeg' in thumbnail_url) else 'image/png'
-                        audio.tags.add(APIC(
-                            encoding=3,
-                            mime=mime,
-                            type=3,
-                            desc='Cover',
-                            data=img_data
-                        ))
-                except Exception as thumb_err:
-                    print(f"Thumbnail embed note: {thumb_err}")
+                    audio.add_tags()
+                except Exception:
+                    pass
 
-            audio.save()
-            if not duration and hasattr(audio, 'info') and hasattr(audio.info, 'length'):
-                duration = int(audio.info.length)
-        except Exception as tag_err:
-            print(f"ID3 Tagging note: {tag_err}")
+                audio.tags.add(TIT2(encoding=3, text=video_title))
+                audio.tags.add(TPE1(encoding=3, text=video_artist))
+                audio.tags.add(TALB(encoding=3, text="Spotify Track" if spotify_id else "YouTube Audio"))
+
+                if req.embed_thumbnail and thumbnail_url:
+                    try:
+                        thumb_req = urllib.request.Request(
+                            thumbnail_url,
+                            headers={'User-Agent': 'Mozilla/5.0'}
+                        )
+                        with urllib.request.urlopen(thumb_req, timeout=6) as resp:
+                            img_data = resp.read()
+                            mime = 'image/jpeg' if ('jpg' in thumbnail_url or 'jpeg' in thumbnail_url) else 'image/png'
+                            audio.tags.add(APIC(
+                                encoding=3,
+                                mime=mime,
+                                type=3,
+                                desc='Cover',
+                                data=img_data
+                            ))
+                    except Exception as thumb_err:
+                        print(f"Thumbnail embed note: {thumb_err}")
+
+                audio.save()
+                if not duration and hasattr(audio, 'info') and hasattr(audio.info, 'length'):
+                    duration = int(audio.info.length)
+            except Exception as tag_err:
+                print(f"ID3 Tagging note: {tag_err}")
 
         # Finalize file details
         safe_title = sanitize_filename(video_title)
         safe_artist = sanitize_filename(video_artist)
         generic_artists = {"youtube", "spotify artist", "spotify", "unknown artist"}
         if safe_artist and safe_artist.lower() not in generic_artists and not safe_title.lower().startswith(safe_artist.lower()):
-            download_filename = f"{safe_artist} - {safe_title}.mp3"
+            download_filename = f"{safe_artist} - {safe_title}.{ext}"
         else:
-            download_filename = f"{safe_title}.mp3"
-        file_size = final_mp3_path.stat().st_size
+            download_filename = f"{safe_title}.{ext}"
+        file_size = final_file_path.stat().st_size
 
         job['progress'] = 100
         job['status'] = 'completed'
-        job['status_text'] = 'Conversion complete! Your MP3 is ready.'
-        job['file_path'] = str(final_mp3_path)
+        job['status_text'] = f'Conversion complete! Your {ext.upper()} is ready.'
+        job['file_path'] = str(final_file_path)
         job['filename'] = download_filename
         job['file_size'] = file_size
         job['file_size_formatted'] = f"{file_size / (1024 * 1024):.2f} MB"
@@ -839,8 +1033,9 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         job['artist'] = video_artist
         job['duration'] = duration
         job['duration_formatted'] = format_duration(duration)
+        job['format'] = ext
+        job['quality'] = "720p HD" if ext == "mp4" else f"{quality} kbps"
         job['thumbnail'] = thumbnail_url
-        job['quality'] = f"{quality} kbps"
         job['expires_at'] = time.time() + 300 # 5 minutes ephemeral lifespan
 
     except Exception as e:
@@ -854,13 +1049,15 @@ def start_conversion(req: ConvertRequest):
     """Start an asynchronous conversion job."""
     clean_url = clean_youtube_url(req.url)
     job_id = str(uuid.uuid4())
+    format_type = req.format.lower() if req.format and req.format.lower() in ["mp4", "video"] else "mp3"
     
     jobs[job_id] = {
         'id': job_id,
         'url': clean_url,
+        'format': format_type,
         'status': 'queued',
         'progress': 0,
-        'status_text': 'Preparing download request...',
+        'status_text': f'Preparing {format_type.upper()} request...',
         'created_at': time.time(),
         'error': None,
         'file_path': None,
@@ -884,6 +1081,7 @@ def get_job_progress(job_id: str):
     job = jobs[job_id]
     return {
         "id": job['id'],
+        "format": job.get('format', 'mp3'),
         "status": job['status'],
         "progress": job['progress'],
         "status_text": job['status_text'],
@@ -899,24 +1097,25 @@ def get_job_progress(job_id: str):
 
 @app.api_route("/api/stream/{job_id}", methods=["GET", "HEAD"])
 def stream_audio(job_id: str):
-    """Stream converted MP3 directly for in-browser playback."""
+    """Stream converted MP3 or MP4 directly for in-browser playback."""
     if job_id not in jobs or jobs[job_id]['status'] != 'completed':
-        raise HTTPException(status_code=404, detail="Audio file not ready or not found")
+        raise HTTPException(status_code=404, detail="Media file not ready or not found")
     
     file_path = jobs[job_id].get('file_path')
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File on disk has been purged")
     
+    media_type = "video/mp4" if str(file_path).endswith(".mp4") else "audio/mpeg"
     return FileResponse(
         path=file_path,
-        media_type="audio/mpeg",
+        media_type=media_type,
         headers={"Accept-Ranges": "bytes"}
     )
 
 @app.api_route("/api/download/{job_id}", methods=["GET", "HEAD"])
 def download_audio(job_id: str):
     """
-    Download converted MP3 file.
+    Download converted MP3 or MP4 file.
     Ephemeral policy: The file is instantly deleted from disk as soon as streaming finishes!
     """
     if job_id not in jobs or jobs[job_id]['status'] != 'completed':
@@ -927,16 +1126,18 @@ def download_audio(job_id: str):
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File already downloaded and purged from server memory.")
     
-    filename = job.get('filename') or "audio.mp3"
+    ext = "mp4" if job.get('format') == "mp4" else "mp3"
+    filename = job.get('filename') or f"media.{ext}"
     from urllib.parse import quote
     encoded_filename = quote(filename)
     
     # BackgroundTask executes automatically the moment the response transfer finishes
     cleanup_task = BackgroundTask(purge_file, file_path, job_id)
+    media_type = "video/mp4" if str(file_path).endswith(".mp4") else "audio/mpeg"
     
     return FileResponse(
         path=file_path,
-        media_type="audio/mpeg",
+        media_type=media_type,
         filename=filename,
         headers={
             "Content-Disposition": f"attachment; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
@@ -950,6 +1151,7 @@ def get_conversion_history():
     completed = [
         {
             "id": j['id'],
+            "format": j.get('format', 'mp3'),
             "title": j.get('title'),
             "artist": j.get('artist'),
             "duration_formatted": j.get('duration_formatted'),
@@ -1030,13 +1232,14 @@ def diagnostic_health_check(v: str = "JGwWNGJdvx8"):
 # Ephemeral Garbage Collector: Purges any files in temp older than 5 minutes
 def ephemeral_cleanup_worker():
     now = time.time()
-    for f in TEMP_DIR.glob("*.mp3"):
-        try:
-            if now - f.stat().st_mtime > 300: # 5 minutes old
-                f.unlink(missing_ok=True)
-                print(f"Expired file removed: {f.name}")
-        except Exception:
-            pass
+    for pattern in ["*.mp3", "*.mp4", "*_raw*"]:
+        for f in TEMP_DIR.glob(pattern):
+            try:
+                if now - f.stat().st_mtime > 300: # 5 minutes old
+                    f.unlink(missing_ok=True)
+                    print(f"Expired file removed: {f.name}")
+            except Exception:
+                pass
 
 @app.on_event("startup")
 async def startup_event():
