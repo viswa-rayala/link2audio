@@ -84,7 +84,27 @@ def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
         print(f"Fast oEmbed lookup note: {e}")
         return None
 
+_cached_tubeapi_key = "66d0abdc85f3b52ac9df11d95ebce90a"
 _cached_y2mate_key = "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
+_cached_ytmp3_key = "ytmp3_9243bb365836f75a94b74494405da4575fdea0290bf6206cac235a46c68a3dc3"
+
+def get_tubeapi_key(force_refresh: bool = False) -> str:
+    """Retrieve or dynamically scrape key from tubeapi.org."""
+    global _cached_tubeapi_key
+    if _cached_tubeapi_key and not force_refresh:
+        return _cached_tubeapi_key
+    try:
+        req = urllib.request.Request("https://tubeapi.org/", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as resp:
+            html = resp.read().decode("utf-8")
+            m = re.search(r"var apiKey=['\"]([^'\"]+)['\"];", html)
+            if m:
+                _cached_tubeapi_key = m.group(1)
+                return _cached_tubeapi_key
+    except Exception as e:
+        print(f"TubeAPI key fetch note: {e}")
+    return _cached_tubeapi_key or "66d0abdc85f3b52ac9df11d95ebce90a"
 
 def get_y2mate_key(force_refresh: bool = False) -> str:
     """Retrieve or dynamically decode the converter worker key from y2mate."""
@@ -106,38 +126,118 @@ def get_y2mate_key(force_refresh: bool = False) -> str:
                     _cached_y2mate_key = decoded
                     return decoded
     except Exception as e:
-        print(f"Dynamic key fetch note: {e}")
+        print(f"Dynamic y2mate key fetch note: {e}")
     return _cached_y2mate_key or "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
+
+def get_ytmp3_key(force_refresh: bool = False) -> str:
+    """Retrieve or dynamically decode the converter worker key from ytmp3.gl."""
+    global _cached_ytmp3_key
+    if _cached_ytmp3_key and not force_refresh:
+        return _cached_ytmp3_key
+    try:
+        req = urllib.request.Request(
+            "https://ytmp3.gl/",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as resp:
+            html = resp.read().decode("utf-8")
+            m = re.search(r"decodeKey\([\"']([^\"']+)[\"']\)", html)
+            if m:
+                decoded = base64.b64decode(m.group(1)[::-1]).decode("utf-8")
+                if decoded.startswith("ytmp3_"):
+                    _cached_ytmp3_key = decoded
+                    return decoded
+    except Exception as e:
+        print(f"Dynamic ytmp3 key fetch note: {e}")
+    return _cached_ytmp3_key or "ytmp3_9243bb365836f75a94b74494405da4575fdea0290bf6206cac235a46c68a3dc3"
 
 def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, raw_output_path: str) -> Dict[str, Any]:
     """
-    Direct audio resolution engine utilizing the upstream etacloud API (identical to y2mate.gs).
-    Extracts high-fidelity audio streams seamlessly without bot checks or cookies.
+    Direct audio resolution engine utilizing multi-cluster failover:
+    Strategy 1: TubeAPI / 123tokyo cluster (Fastest, <1s response, global CDN stream)
+    Strategy 2: etacloud.org cluster (Official y2mate.gs upstream)
+    Strategy 3: gammacloud.net cluster (Official ytmp3.gl upstream)
+    Strategy 4: Cloudflare worker fallback
     """
-    key = get_y2mate_key()
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": "https://y2mate.gs/",
-        "Origin": "https://y2mate.gs"
-    }
     ctx = ssl.create_default_context()
     
-    # 1. Primary Strategy: eta.etacloud.org (Official y2mate upstream cluster)
+    # 1. Strategy 1: TubeAPI / 123tokyo Cluster (Ultra fast, verified cloud deployment safe)
     try:
-        job['status_text'] = "Authenticating with conversion cluster..."
-        job['progress'] = 20
+        job['status_text'] = "Connecting to high-speed audio resolver..."
+        job['progress'] = 25
+        api_key = get_tubeapi_key()
         now_ms = int(time.time() * 1000)
-        auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={key}&_={now_ms}"
-        req = urllib.request.Request(auth_url, headers=headers)
+        tube_url = f"https://hidden-sun-3c87.holy-breeze-fec5.workers.dev/?e=i&v={video_id}&api_key={api_key}&_={now_ms}"
+        req = urllib.request.Request(
+            tube_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://tubeapi.org/"
+            }
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            
+        title = data.get("title") or ""
+        download_url = data.get("link")
+        
+        # If it's processing, poll up to 20 times (every 3 seconds)
+        if data.get("status") == "processing" and not download_url:
+            job['status_text'] = "Extracting audio track from high-speed cluster..."
+            for step in range(20):
+                time.sleep(3)
+                poll_url = f"https://hidden-sun-3c87.holy-breeze-fec5.workers.dev/?e=i&v={video_id}&api_key={api_key}&_={int(time.time() * 1000)}"
+                p_req = urllib.request.Request(poll_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://tubeapi.org/"})
+                try:
+                    with urllib.request.urlopen(p_req, context=ctx, timeout=10) as pr:
+                        p_data = json.loads(pr.read().decode("utf-8"))
+                        if p_data.get("title") and not title:
+                            title = p_data.get("title")
+                        if p_data.get("status") == "ok" and p_data.get("link"):
+                            download_url = p_data.get("link")
+                            break
+                        job['progress'] = min(25 + (step * 2), 68)
+                except Exception as pe:
+                    print(f"TubeAPI poll warning: {pe}")
+                    
+        if download_url:
+            job['status'] = 'downloading'
+            job['progress'] = 70
+            job['status_text'] = 'Streaming high-speed audio data...'
+            dl_req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(dl_req, context=ctx, timeout=90) as dl_resp:
+                with open(raw_output_path, "wb") as f:
+                    while True:
+                        chunk = dl_resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 10000:
+                return {"title": title, "duration": data.get("duration"), "format": "mp3"}
+    except Exception as e:
+        print(f"TubeAPI strategy note: {e}")
+
+    # 2. Strategy 2: Official eta.etacloud.org Cluster (y2mate.gs)
+    try:
+        y_key = get_y2mate_key()
+        y_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://y2mate.gs/",
+            "Origin": "https://y2mate.gs"
+        }
+        job['status_text'] = "Authenticating with conversion cluster..."
+        job['progress'] = 30
+        now_ms = int(time.time() * 1000)
+        auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={y_key}&_={now_ms}"
+        req = urllib.request.Request(auth_url, headers=y_headers)
         with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
             auth_data = json.loads(r.read().decode("utf-8"))
         bearer = auth_data.get("key")
         
         if bearer:
-            job['status_text'] = "Initializing stream conversion..."
-            job['progress'] = 30
             init_url = f"https://eta.etacloud.org/api/v1/init?_={int(time.time() * 1000)}"
-            init_headers = dict(headers)
+            init_headers = dict(y_headers)
             init_headers["Authorization"] = f"Bearer {bearer}"
             req = urllib.request.Request(init_url, headers=init_headers)
             with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
@@ -148,7 +248,7 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
                 job['status_text'] = "Resolving audio format..."
                 job['progress'] = 45
                 c_url = f"{convert_url}&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
-                req = urllib.request.Request(c_url, headers=headers)
+                req = urllib.request.Request(c_url, headers=y_headers)
                 with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
                     c_data = json.loads(r.read().decode("utf-8"))
                     
@@ -156,82 +256,127 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
                     redir_url = c_data["redirectURL"]
                     if "&v=" not in redir_url:
                         redir_url += f"&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
-                    req = urllib.request.Request(redir_url, headers=headers)
+                    req = urllib.request.Request(redir_url, headers=y_headers)
                     with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
                         c_data = json.loads(r.read().decode("utf-8"))
                 
                 download_url = c_data.get("downloadURL")
                 title = c_data.get("title") or ""
                 
-                # If progress is needed, poll
+                # If progress needed, poll
                 if c_data.get("status") == "progress" and c_data.get("progressURL"):
                     prog_url = c_data["progressURL"]
                     job['status_text'] = "Converting track..."
-                    for step in range(30):
+                    for step in range(25):
                         time.sleep(2)
-                        p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
-                        with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
-                            p_data = json.loads(p_resp.read().decode("utf-8"))
-                            job['progress'] = min(45 + (step * 2), 68)
-                            if p_data.get("title") and not title:
-                                title = p_data.get("title")
-                            if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
-                                download_url = p_data.get("downloadURL") or download_url
-                                break
-                                
+                        p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=y_headers)
+                        try:
+                            with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
+                                p_data = json.loads(p_resp.read().decode("utf-8"))
+                                job['progress'] = min(45 + (step * 2), 68)
+                                if p_data.get("title") and not title:
+                                    title = p_data.get("title")
+                                if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
+                                    download_url = p_data.get("downloadURL") or download_url
+                                    break
+                        except Exception as poll_e:
+                            print(f"Etacloud poll note: {poll_e}")
+                            
                 if download_url:
                     job['status'] = 'downloading'
                     job['progress'] = 70
                     job['status_text'] = 'Streaming high-speed audio data...'
                     dl_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"}
                     dl_req = urllib.request.Request(download_url, headers=dl_headers)
-                    with urllib.request.urlopen(dl_req, context=ctx, timeout=60) as dl_resp:
+                    with urllib.request.urlopen(dl_req, context=ctx, timeout=90) as dl_resp:
                         with open(raw_output_path, "wb") as f:
                             while True:
                                 chunk = dl_resp.read(65536)
                                 if not chunk:
                                     break
                                 f.write(chunk)
-                    return {"title": title, "format": "mp3"}
+                    if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 10000:
+                        return {"title": title, "format": "mp3"}
     except Exception as e:
         print(f"Etacloud strategy note: {e}")
 
-    # 2. Secondary Strategy: Cloudflare worker endpoint
+    # 3. Strategy 3: Official gamma.gammacloud.net Cluster (ytmp3.gl)
+    try:
+        g_key = get_ytmp3_key()
+        g_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://ytmp3.gl/",
+            "Origin": "https://ytmp3.gl"
+        }
+        now_ms = int(time.time() * 1000)
+        auth_url = f"https://gamma.gammacloud.net/api/v1/auth?api_key={g_key}&_={now_ms}"
+        req = urllib.request.Request(auth_url, headers=g_headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            auth_data = json.loads(r.read().decode("utf-8"))
+        bearer = auth_data.get("key")
+        
+        if bearer:
+            init_url = f"https://gamma.gammacloud.net/api/v1/init?_={int(time.time() * 1000)}"
+            init_headers = dict(g_headers)
+            init_headers["Authorization"] = f"Bearer {bearer}"
+            req = urllib.request.Request(init_url, headers=init_headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                init_data = json.loads(r.read().decode("utf-8"))
+            convert_url = init_data.get("convertURL")
+            
+            if convert_url:
+                c_url = f"{convert_url}&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
+                req = urllib.request.Request(c_url, headers=g_headers)
+                with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+                    c_data = json.loads(r.read().decode("utf-8"))
+                    
+                if c_data.get("redirect") == 1:
+                    redir_url = c_data["redirectURL"]
+                    if "&v=" not in redir_url:
+                        redir_url += f"&v={video_id}&f=mp3&_={int(time.time() * 1000)}"
+                    req = urllib.request.Request(redir_url, headers=g_headers)
+                    with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+                        c_data = json.loads(r.read().decode("utf-8"))
+                
+                download_url = c_data.get("downloadURL")
+                title = c_data.get("title") or ""
+                
+                if download_url:
+                    dl_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://ytmp3.gl/"}
+                    dl_req = urllib.request.Request(download_url, headers=dl_headers)
+                    with urllib.request.urlopen(dl_req, context=ctx, timeout=90) as dl_resp:
+                        with open(raw_output_path, "wb") as f:
+                            while True:
+                                chunk = dl_resp.read(65536)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                    if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 10000:
+                        return {"title": title, "format": "mp3"}
+    except Exception as e:
+        print(f"Gammacloud strategy note: {e}")
+
+    # 4. Strategy 4: Cloudflare Worker fallback
     try:
         now_ms = int(time.time() * 1000)
-        worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={key}&v={video_id}&f=mp3&_={now_ms}"
-        req = urllib.request.Request(worker_init_url, headers=headers)
+        worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={get_y2mate_key()}&v={video_id}&f=mp3&_={now_ms}"
+        req = urllib.request.Request(worker_init_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
         with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         if data.get("error", 0) == 0:
             download_url = data.get("downloadURL")
             title = data.get("title") or ""
-            if data.get("status") == "progress" and data.get("progressURL"):
-                prog_url = data["progressURL"]
-                for step in range(30):
-                    time.sleep(2)
-                    p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=headers)
-                    with urllib.request.urlopen(p_req, context=ctx, timeout=10) as p_resp:
-                        p_data = json.loads(p_resp.read().decode("utf-8"))
-                        if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL"):
-                            download_url = p_data.get("downloadURL") or download_url
-                            if p_data.get("title"):
-                                title = p_data.get("title")
-                            break
             if download_url:
-                job['status'] = 'downloading'
-                job['progress'] = 70
-                job['status_text'] = 'Streaming high-speed audio data...'
-                dl_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"}
-                dl_req = urllib.request.Request(download_url, headers=dl_headers)
-                with urllib.request.urlopen(dl_req, context=ctx, timeout=60) as dl_resp:
+                dl_req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
+                with urllib.request.urlopen(dl_req, context=ctx, timeout=90) as dl_resp:
                     with open(raw_output_path, "wb") as f:
                         while True:
                             chunk = dl_resp.read(65536)
                             if not chunk:
                                 break
                             f.write(chunk)
-                return {"title": title, "format": "mp3"}
+                if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 10000:
+                    return {"title": title, "format": "mp3"}
     except Exception as e:
         print(f"Worker strategy note: {e}")
 
@@ -521,7 +666,10 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         # Finalize file details
         safe_title = sanitize_filename(video_title)
         safe_artist = sanitize_filename(video_artist)
-        download_filename = f"{safe_artist} - {safe_title}.mp3" if safe_artist and safe_artist != "YouTube" else f"{safe_title}.mp3"
+        if safe_artist and safe_artist.lower() != "youtube" and not safe_title.lower().startswith(safe_artist.lower()):
+            download_filename = f"{safe_artist} - {safe_title}.mp3"
+        else:
+            download_filename = f"{safe_title}.mp3"
         file_size = final_mp3_path.stat().st_size
 
         job['progress'] = 100
@@ -671,6 +819,57 @@ def delete_conversion(job_id: str):
         del jobs[job_id]
         return {"success": True, "message": "Conversion deleted and purged"}
     raise HTTPException(status_code=404, detail="Job not found")
+
+@app.get("/api/diag")
+def diagnostic_health_check(v: str = "JGwWNGJdvx8"):
+    """Live diagnostic check for external cluster health and network connectivity."""
+    report = {
+        "status": "ok",
+        "video_id": v,
+        "time": time.time(),
+        "tests": {}
+    }
+    
+    # 1. Test TubeAPI Cluster
+    try:
+        api_key = get_tubeapi_key()
+        u = f"https://hidden-sun-3c87.holy-breeze-fec5.workers.dev/?e=i&v={v}&api_key={api_key}&_={int(time.time()*1000)}"
+        req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://tubeapi.org/"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            report["tests"]["tubeapi"] = {
+                "status": "ok" if data.get("status") in ["ok", "processing"] else "fail",
+                "cluster_status": data.get("status"),
+                "has_link": bool(data.get("link")),
+                "title": data.get("title")
+            }
+    except Exception as e:
+        report["tests"]["tubeapi"] = {"status": "error", "error": str(e)}
+
+    # 2. Test Etacloud Cluster Auth
+    try:
+        y_key = get_y2mate_key()
+        auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={y_key}&_={int(time.time()*1000)}"
+        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/", "Origin": "https://y2mate.gs"}
+        req = urllib.request.Request(auth_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            report["tests"]["etacloud_auth"] = {
+                "status": "ok" if data.get("key") else "fail",
+                "geo": data.get("geo"),
+                "has_key": bool(data.get("key"))
+            }
+    except Exception as e:
+        report["tests"]["etacloud_auth"] = {"status": "error", "error": str(e)}
+
+    # 3. System binaries
+    report["system"] = {
+        "ffmpeg": shutil.which("ffmpeg") is not None,
+        "nodejs": shutil.which("node") is not None,
+        "temp_writable": os.access(str(TEMP_DIR), os.W_OK)
+    }
+    
+    return report
 
 # Ephemeral Garbage Collector: Purges any files in temp older than 5 minutes
 def ephemeral_cleanup_worker():
