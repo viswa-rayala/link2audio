@@ -374,13 +374,76 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
     
     # --- MP4 Video Engine ---
     if format_type.lower() == "mp4":
-        # Strategy 1: Gammacloud cluster for MP4
+        # Strategy 1: Cloudflare Edge Cluster (Ultra-fast, datacenter-safe, verified on cloud deployments)
+        worker_configs = [
+            ("https://y2mate.gs/", get_y2mate_key(), "Connecting to primary high-speed MP4 video cluster..."),
+            ("https://ytmp3.gl/", get_ytmp3_key(), "Connecting to secondary high-speed MP4 video cluster...")
+        ]
+        for origin, w_key, status_msg in worker_configs:
+            try:
+                job['status_text'] = status_msg
+                job['progress'] = 25
+                w_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Referer": origin,
+                    "Origin": origin.rstrip("/")
+                }
+                now_ms = int(time.time() * 1000)
+                worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={w_key}&v={video_id}&f=mp4&_={now_ms}"
+                req = urllib.request.Request(worker_init_url, headers=w_headers)
+                with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                
+                if data.get("error", 0) != 0:
+                    print(f"Worker MP4 error ({origin}): {data.get('error')}")
+                    continue
+                
+                title = data.get("title") or ""
+                download_url = data.get("downloadURL")
+                prog_url = data.get("progressURL")
+                
+                # If transcoding in progress, poll progressURL
+                if (data.get("status") == "progress" or prog_url) and not (download_url and data.get("status") == "download"):
+                    job['status_text'] = "Encoding MP4 video stream..."
+                    for step in range(30):
+                        time.sleep(2)
+                        p_url = f"{prog_url}&_={int(time.time()*1000)}"
+                        p_req = urllib.request.Request(p_url, headers=w_headers)
+                        try:
+                            with urllib.request.urlopen(p_req, context=ctx, timeout=10) as pr:
+                                p_data = json.loads(pr.read().decode("utf-8"))
+                                job['progress'] = min(30 + (step * 2), 68)
+                                if p_data.get("title") and not title:
+                                    title = p_data.get("title")
+                                if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL") or p_data.get("status") == "download":
+                                    download_url = p_data.get("downloadURL") or download_url
+                                    break
+                        except Exception as pe:
+                            print(f"Worker MP4 poll note: {pe}")
+                            
+                if download_url:
+                    job['status'] = 'downloading'
+                    job['progress'] = 70
+                    job['status_text'] = 'Streaming high-definition MP4 video data...'
+                    dl_req = urllib.request.Request(download_url, headers=w_headers)
+                    with urllib.request.urlopen(dl_req, context=ctx, timeout=180) as dl_resp:
+                        with open(raw_output_path, "wb") as f:
+                            while True:
+                                chunk = dl_resp.read(65536)
+                                if not chunk: break
+                                f.write(chunk)
+                    if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 100000:
+                        return {"title": title, "format": "mp4"}
+            except Exception as e:
+                print(f"Worker MP4 strategy ({origin}) note: {e}")
+
+        # Strategy 2: Direct Gammacloud cluster fallback
         try:
-            job['status_text'] = "Connecting to high-speed MP4 video cluster..."
-            job['progress'] = 25
+            job['status_text'] = "Connecting to direct MP4 video cluster..."
+            job['progress'] = 30
             g_key = get_ytmp3_key()
             g_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Referer": "https://ytmp3.gl/",
                 "Origin": "https://ytmp3.gl"
             }
@@ -397,8 +460,6 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
                     init_data = json.loads(r.read().decode("utf-8"))
                 convert_url = init_data.get("convertURL")
                 if convert_url:
-                    job['status_text'] = "Converting video to MP4..."
-                    job['progress'] = 35
                     c_url = f"{convert_url}&v={video_id}&f=mp4&_={int(time.time()*1000)}"
                     c_req = urllib.request.Request(c_url, headers=g_headers)
                     with urllib.request.urlopen(c_req, context=ctx, timeout=10) as r:
@@ -406,7 +467,6 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
                     prog_url = c_data.get("progressURL")
                     dl_url = c_data.get("downloadURL")
                     title = c_data.get("title") or ""
-                    
                     if prog_url:
                         for step in range(25):
                             time.sleep(1.5)
@@ -438,13 +498,11 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
         except Exception as e:
             print(f"Gammacloud MP4 note: {e}")
 
-        # Strategy 2: Etacloud cluster for MP4
+        # Strategy 3: Direct Etacloud cluster fallback
         try:
-            job['status_text'] = "Trying secondary MP4 video cluster..."
-            job['progress'] = 30
             y_key = get_y2mate_key()
             y_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Referer": "https://y2mate.gs/",
                 "Origin": "https://y2mate.gs"
             }
@@ -498,29 +556,6 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
                             return {"title": title, "format": "mp4"}
         except Exception as e:
             print(f"Etacloud MP4 note: {e}")
-
-        # Strategy 3: Cloudflare Worker for MP4
-        try:
-            now_ms = int(time.time() * 1000)
-            worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={get_y2mate_key()}&v={video_id}&f=mp4&_={now_ms}"
-            req = urllib.request.Request(worker_init_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
-            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            if data.get("error", 0) == 0:
-                download_url = data.get("downloadURL")
-                title = data.get("title") or ""
-                if download_url:
-                    dl_req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
-                    with urllib.request.urlopen(dl_req, context=ctx, timeout=120) as dl_resp:
-                        with open(raw_output_path, "wb") as f:
-                            while True:
-                                chunk = dl_resp.read(65536)
-                                if not chunk: break
-                                f.write(chunk)
-                    if os.path.exists(raw_output_path) and os.path.getsize(raw_output_path) > 100000:
-                        return {"title": title, "format": "mp4"}
-        except Exception as e:
-            print(f"Worker MP4 strategy note: {e}")
 
         raise Exception("Could not resolve MP4 video stream via converter engines")
 
@@ -721,16 +756,38 @@ def fetch_via_converter_api(video_id: str, job: Dict[str, Any], quality: str, ra
 
     # 4. Strategy 4: Cloudflare Worker fallback
     try:
+        w_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://y2mate.gs/",
+            "Origin": "https://y2mate.gs"
+        }
         now_ms = int(time.time() * 1000)
         worker_init_url = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={get_y2mate_key()}&v={video_id}&f=mp3&_={now_ms}"
-        req = urllib.request.Request(worker_init_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
+        req = urllib.request.Request(worker_init_url, headers=w_headers)
         with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         if data.get("error", 0) == 0:
             download_url = data.get("downloadURL")
+            prog_url = data.get("progressURL")
             title = data.get("title") or ""
+            
+            if (data.get("status") == "progress" or prog_url) and not (download_url and data.get("status") == "download"):
+                for step in range(25):
+                    time.sleep(2)
+                    p_req = urllib.request.Request(f"{prog_url}&_={int(time.time()*1000)}", headers=w_headers)
+                    try:
+                        with urllib.request.urlopen(p_req, context=ctx, timeout=10) as pr:
+                            p_data = json.loads(pr.read().decode("utf-8"))
+                            if p_data.get("title") and not title:
+                                title = p_data.get("title")
+                            if p_data.get("progress", 0) >= 3 or p_data.get("downloadURL") or p_data.get("status") == "download":
+                                download_url = p_data.get("downloadURL") or download_url
+                                break
+                    except Exception as pe:
+                        print(f"Worker MP3 poll note: {pe}")
+            
             if download_url:
-                dl_req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/"})
+                dl_req = urllib.request.Request(download_url, headers=w_headers)
                 with urllib.request.urlopen(dl_req, context=ctx, timeout=90) as dl_resp:
                     with open(raw_output_path, "wb") as f:
                         while True:
@@ -973,10 +1030,10 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         if not converted_via_worker:
             job['status_text'] = f"Resolving {ext.upper()} stream via secondary engine..."
             client_profiles = [
+                ['ios', 'android'],
                 ['android'],
-                ['visionos'],
-                ['tv_embedded'],
-                ['android_creator']
+                ['android_creator'],
+                ['tv_embedded']
             ]
             meta = None
             last_err = None
@@ -1014,6 +1071,12 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
                         'quiet': True,
                         'no_warnings': True,
                     }
+
+                if HAS_IMPERSONATE and ImpersonateTarget:
+                    try:
+                        ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
+                    except Exception:
+                        pass
 
                 if shutil.which("node"):
                     ydl_opts['js_runtimes'] = {'node': {'path': shutil.which("node")}}
@@ -1342,7 +1405,7 @@ def diagnostic_health_check(v: str = "JGwWNGJdvx8"):
     try:
         y_key = get_y2mate_key()
         auth_url = f"https://eta.etacloud.org/api/v1/auth?api_key={y_key}&_={int(time.time()*1000)}"
-        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y2mate.gs/", "Origin": "https://y2mate.gs"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Referer": "https://y2mate.gs/", "Origin": "https://y2mate.gs"}
         req = urllib.request.Request(auth_url, headers=headers)
         with urllib.request.urlopen(req, timeout=8) as r:
             data = json.loads(r.read().decode("utf-8"))
@@ -1354,7 +1417,29 @@ def diagnostic_health_check(v: str = "JGwWNGJdvx8"):
     except Exception as e:
         report["tests"]["etacloud_auth"] = {"status": "error", "error": str(e)}
 
-    # 3. System binaries
+    # 3. Test Cloudflare MP4 Cluster
+    try:
+        w_key = get_y2mate_key()
+        now_ms = int(time.time() * 1000)
+        u = f"https://fancy-sea-5d3d.holy-breeze-fec5.workers.dev/?m=i&k={w_key}&v={v}&f=mp4&_={now_ms}"
+        w_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://y2mate.gs/",
+            "Origin": "https://y2mate.gs"
+        }
+        req = urllib.request.Request(u, headers=w_headers)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            report["tests"]["mp4_worker"] = {
+                "status": "ok" if data.get("error", -1) == 0 else "fail",
+                "cluster_status": data.get("status"),
+                "has_progress_url": bool(data.get("progressURL")),
+                "title": data.get("title")
+            }
+    except Exception as e:
+        report["tests"]["mp4_worker"] = {"status": "error", "error": str(e)}
+
+    # 4. System binaries
     report["system"] = {
         "ffmpeg": shutil.which("ffmpeg") is not None,
         "nodejs": shutil.which("node") is not None,
