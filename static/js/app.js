@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearBtn = document.getElementById('clearBtn');
   const pasteBtn = document.getElementById('pasteBtn');
   const fetchBtn = document.getElementById('fetchBtn');
-
+  
   const previewCard = document.getElementById('previewCard');
   const previewThumb = document.getElementById('previewThumb');
   const previewDuration = document.getElementById('previewDuration');
@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const convertBtnIcon = document.getElementById('convertBtnIcon');
   const formatMp3Btn = document.getElementById('formatMp3Btn');
   const formatMp4Btn = document.getElementById('formatMp4Btn');
-
+  
   const trimToggle = document.getElementById('trimToggle');
   const trimContent = document.getElementById('trimContent');
   const trimArrow = document.getElementById('trimArrow');
@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-
+    
     let iconSvg = '';
     if (type === 'error') {
       iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
@@ -498,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
           clearInterval(activePollInterval);
           progressCard.style.display = 'none';
           previewCard.style.display = 'block';
-
+          
           let friendlyMsg = job.error || 'Conversion failed. Please try again.';
           if (friendlyMsg.includes('Sign in to confirm') || friendlyMsg.includes('bot')) {
             friendlyMsg = 'Audio stream could not be loaded. Please try again in a few moments or try another link.';
@@ -695,8 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
         </div>
       </div>
-    `;
-    }).join('');
+    `;}).join('');
 
     // Attach listeners for history action buttons
     document.querySelectorAll('.history-play-btn').forEach(btn => {
@@ -704,7 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = btn.getAttribute('data-id');
         const fmt = btn.getAttribute('data-format') || 'mp3';
         const streamUrl = `/api/stream/${id}`;
-
+        
         if (fmt === 'mp4') {
           pauseAudio();
           if (audioPlayerBox) audioPlayerBox.style.display = 'none';
