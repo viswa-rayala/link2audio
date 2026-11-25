@@ -501,7 +501,9 @@ document.addEventListener('DOMContentLoaded', () => {
           
           let friendlyMsg = job.error || 'Conversion failed. Please try again.';
           if (friendlyMsg.includes('Sign in to confirm') || friendlyMsg.includes('bot')) {
-            friendlyMsg = 'Audio stream could not be loaded. Please try again in a few moments or try another link.';
+            friendlyMsg = selectedFormat === 'mp4'
+              ? 'Video stream could not be loaded. Please try again in a few moments or try another link.'
+              : 'Audio stream could not be loaded. Please try again in a few moments or try another link.';
           }
           showToast(friendlyMsg, 'error');
         }
