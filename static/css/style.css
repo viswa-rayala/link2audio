@@ -243,6 +243,18 @@ body {
   border-color: rgba(30, 215, 96, 0.2);
 }
 
+.platform-tag.instagram {
+  color: #f77737;
+  background: rgba(225, 48, 108, 0.08);
+  border-color: rgba(225, 48, 108, 0.25);
+}
+
+.platform-tag.instagram:hover {
+  background: rgba(225, 48, 108, 0.15);
+  border-color: rgba(225, 48, 108, 0.5);
+  color: #ff5277;
+}
+
 .platform-tag.music {
   color: #38bdf8;
   background: rgba(56, 189, 248, 0.08);
@@ -271,6 +283,11 @@ body {
 .platform-badge-tag.spotify {
   background: rgba(30, 215, 96, 0.92);
   color: #000;
+}
+
+.platform-badge-tag.instagram {
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  color: #fff;
 }
 
 /* Drop Zone & Input */
@@ -461,6 +478,12 @@ body {
   color: #1ed760;
 }
 
+.sample-pill.instagram-pill:hover {
+  background: rgba(225, 48, 108, 0.15);
+  border-color: rgba(225, 48, 108, 0.35);
+  color: #f77737;
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -477,6 +500,11 @@ body {
 .dot.red {
   background: #ff1a40;
   box-shadow: 0 0 6px rgba(255, 26, 64, 0.6);
+}
+
+.dot.instagram {
+  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  box-shadow: 0 0 6px rgba(225, 48, 108, 0.6);
 }
 
 .btn-convert-main {

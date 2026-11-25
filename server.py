@@ -22,6 +22,12 @@ from starlette.background import BackgroundTask
 from pydantic import BaseModel
 
 import yt_dlp
+try:
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+    HAS_IMPERSONATE = True
+except Exception:
+    ImpersonateTarget = None
+    HAS_IMPERSONATE = False
 import mutagen
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC
@@ -205,6 +211,83 @@ def fetch_fast_video_info(video_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"Fast oEmbed lookup note: {e}")
         return None
+
+def extract_instagram_id(url: str) -> Optional[str]:
+    """Extract Instagram shortcode from Reel, Post, TV, or mobile share URL."""
+    clean_u = url.strip()
+    pattern = r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:[a-zA-Z0-9_\.]+\/)?(?:reel|reels|p|tv|share\/r|share\/p)\/([a-zA-Z0-9_-]+)'
+    m = re.search(pattern, clean_u)
+    return m.group(1) if m else None
+
+def clean_instagram_url(url: str) -> str:
+    """Normalize Instagram URL to canonical link."""
+    shortcode = extract_instagram_id(url)
+    if shortcode:
+        if "/p/" in url:
+            return f"https://www.instagram.com/p/{shortcode}/"
+        return f"https://www.instagram.com/reel/{shortcode}/"
+    return url.strip()
+
+def fetch_instagram_media_info(url_or_code: str) -> Optional[Dict[str, Any]]:
+    """Instant lookup of Instagram Reel or Post metadata using TLS browser impersonation."""
+    shortcode = extract_instagram_id(url_or_code) or url_or_code.strip()
+    canonical_url = f"https://www.instagram.com/reel/{shortcode}/"
+    
+    ydl_opts = {
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 10,
+    }
+    if HAS_IMPERSONATE and ImpersonateTarget:
+        try:
+            ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
+        except Exception:
+            pass
+            
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(canonical_url, download=False)
+            if info:
+                title = info.get('title') or ''
+                caption = info.get('description') or ''
+                if caption and (not title or title.startswith('Video by ')):
+                    first_line = caption.strip().split('\n')[0]
+                    if len(first_line) > 80:
+                        first_line = first_line[:77] + '...'
+                    clean_title = first_line if len(first_line) > 3 else title
+                else:
+                    clean_title = title or f"Instagram Reel ({shortcode})"
+                    
+                uploader = info.get('uploader') or info.get('uploader_id') or "Instagram Creator"
+                duration = info.get('duration')
+                thumbnail = info.get('thumbnail') or ""
+                
+                return {
+                    "id": shortcode,
+                    "platform": "instagram",
+                    "url": canonical_url,
+                    "title": clean_title,
+                    "author": uploader,
+                    "duration": duration,
+                    "duration_formatted": format_duration(duration) if duration else "Ready to convert",
+                    "thumbnail": thumbnail,
+                    "view_count": info.get('view_count') or 0
+                }
+    except Exception as e:
+        print(f"Instagram yt-dlp metadata note: {e}")
+        
+    return {
+        "id": shortcode,
+        "platform": "instagram",
+        "url": canonical_url,
+        "title": f"Instagram Media ({shortcode})",
+        "author": "Instagram Creator",
+        "duration": None,
+        "duration_formatted": "Ready to convert",
+        "thumbnail": "",
+        "view_count": 0
+    }
 
 _cached_tubeapi_key = "66d0abdc85f3b52ac9df11d95ebce90a"
 _cached_y2mate_key = "y2mate_3bf573e166560094af6dd7eae06709db866e5b28dfb0189b8a9f254ff8119aee"
@@ -719,13 +802,21 @@ def get_video_info(req: InfoRequest):
         if spot_info:
             return {"success": True, "data": spot_info}
         raise HTTPException(status_code=400, detail="Could not load Spotify track details. Please check the link.")
+
+    # 2. Instagram Path (Reels, Posts, Videos)
+    instagram_id = extract_instagram_id(url_str)
+    if instagram_id:
+        ig_info = fetch_instagram_media_info(url_str)
+        if ig_info:
+            return {"success": True, "data": ig_info}
+        raise HTTPException(status_code=400, detail="Could not load Instagram media details. Please make sure the post or reel is public.")
         
-    # 2. YouTube Path
+    # 3. YouTube Path
     clean_url = clean_youtube_url(url_str)
     video_id = extract_video_id(clean_url)
     
     if not video_id:
-        raise HTTPException(status_code=400, detail="Invalid link. Please provide a valid YouTube or Spotify track URL.")
+        raise HTTPException(status_code=400, detail="Invalid link. Please provide a valid YouTube, Spotify, or Instagram URL.")
 
     # 1. Ultra-fast path: YouTube public oEmbed API (~150ms)
     fast_info = fetch_fast_video_info(video_id)
@@ -786,6 +877,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
 
     url_str = req.url.strip()
     spotify_id = extract_spotify_id(url_str)
+    instagram_id = extract_instagram_id(url_str)
     format_type = req.format.lower() if req.format and req.format.lower() in ["mp4", "video"] else "mp3"
     job['format'] = format_type
     ext = "mp4" if format_type == "mp4" else "mp3"
@@ -798,6 +890,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         
         video_id = None
         duration = None
+        converted_via_worker = False
         
         if spotify_id:
             job['status_text'] = f"Matching Spotify track to high-fidelity {'video' if format_type == 'mp4' else 'audio'} stream..."
@@ -813,6 +906,44 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
             if not video_id:
                 raise Exception(f"Could not find a media stream matching '{video_artist} - {video_title}'")
             clean_url = f"https://www.youtube.com/watch?v={video_id}"
+        elif instagram_id:
+            clean_url = clean_instagram_url(url_str)
+            job['status_text'] = f"Extracting Instagram {ext.upper()} media stream..."
+            job['progress'] = 15
+            ig_meta = fetch_instagram_media_info(clean_url)
+            video_title = req.title.strip() if req.title and req.title.strip() else (ig_meta.get("title") if ig_meta else f"Instagram {ext.upper()}")
+            video_artist = req.artist.strip() if req.artist and req.artist.strip() else (ig_meta.get("author") if ig_meta else "Instagram")
+            thumbnail_url = ig_meta.get("thumbnail") if ig_meta else ""
+            duration = ig_meta.get("duration") if ig_meta else None
+            
+            job['title'] = video_title
+            job['artist'] = video_artist
+            job['thumbnail'] = thumbnail_url
+            job['duration_formatted'] = format_duration(duration) if duration else "Unknown"
+            
+            job['status_text'] = f"Downloading original Instagram {ext.upper()} media..."
+            job['progress'] = 45
+            
+            ydl_opts = {
+                'outtmpl': raw_output_path,
+                'format': 'best',
+                'socket_timeout': 30,
+                'quiet': True,
+                'no_warnings': True,
+            }
+            if HAS_IMPERSONATE and ImpersonateTarget:
+                try:
+                    ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
+                except Exception:
+                    pass
+                    
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([clean_url])
+                
+            if not os.path.exists(raw_output_path) or os.path.getsize(raw_output_path) < 1000:
+                raise Exception("Failed to download Instagram media stream.")
+                
+            converted_via_worker = True
         else:
             clean_url = clean_youtube_url(url_str)
             video_id = extract_video_id(clean_url)
@@ -820,8 +951,6 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
             video_title = req.title.strip() if req.title and req.title.strip() else (fast_meta.get("title") if fast_meta else ("YouTube Video" if format_type == "mp4" else "YouTube Audio"))
             video_artist = req.artist.strip() if req.artist and req.artist.strip() else (fast_meta.get("author") if fast_meta else "YouTube")
             thumbnail_url = fast_meta.get("thumbnail") if fast_meta else (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else "")
-
-        converted_via_worker = False
 
         # 1. Primary Engine: High-speed Multi-cluster Resolvers (Gammacloud / Etacloud / TubeAPI)
         if video_id:
@@ -985,7 +1114,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
 
                 audio.tags.add(TIT2(encoding=3, text=video_title))
                 audio.tags.add(TPE1(encoding=3, text=video_artist))
-                audio.tags.add(TALB(encoding=3, text="Spotify Track" if spotify_id else "YouTube Audio"))
+                audio.tags.add(TALB(encoding=3, text="Spotify Track" if spotify_id else ("Instagram Media" if instagram_id else "YouTube Audio")))
 
                 if req.embed_thumbnail and thumbnail_url:
                     try:
@@ -1015,7 +1144,7 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
         # Finalize file details
         safe_title = sanitize_filename(video_title)
         safe_artist = sanitize_filename(video_artist)
-        generic_artists = {"youtube", "spotify artist", "spotify", "unknown artist"}
+        generic_artists = {"youtube", "spotify artist", "spotify", "unknown artist", "instagram", "instagram creator"}
         if safe_artist and safe_artist.lower() not in generic_artists and not safe_title.lower().startswith(safe_artist.lower()):
             download_filename = f"{safe_artist} - {safe_title}.{ext}"
         else:
@@ -1047,7 +1176,12 @@ def run_conversion_job(job_id: str, req: ConvertRequest):
 @app.post("/api/convert")
 def start_conversion(req: ConvertRequest):
     """Start an asynchronous conversion job."""
-    clean_url = clean_youtube_url(req.url)
+    if extract_instagram_id(req.url):
+        clean_url = clean_instagram_url(req.url)
+    elif extract_spotify_id(req.url):
+        clean_url = req.url.strip()
+    else:
+        clean_url = clean_youtube_url(req.url)
     job_id = str(uuid.uuid4())
     format_type = req.format.lower() if req.format and req.format.lower() in ["mp4", "video"] else "mp3"
     

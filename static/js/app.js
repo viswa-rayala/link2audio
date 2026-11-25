@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearBtn = document.getElementById('clearBtn');
   const pasteBtn = document.getElementById('pasteBtn');
   const fetchBtn = document.getElementById('fetchBtn');
-  
+
   const previewCard = document.getElementById('previewCard');
   const previewThumb = document.getElementById('previewThumb');
   const previewDuration = document.getElementById('previewDuration');
@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const convertBtnIcon = document.getElementById('convertBtnIcon');
   const formatMp3Btn = document.getElementById('formatMp3Btn');
   const formatMp4Btn = document.getElementById('formatMp4Btn');
-  
+
   const trimToggle = document.getElementById('trimToggle');
   const trimContent = document.getElementById('trimContent');
   const trimArrow = document.getElementById('trimArrow');
@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    
+
     let iconSvg = '';
     if (type === 'error') {
       iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
@@ -168,8 +168,15 @@ document.addEventListener('DOMContentLoaded', () => {
     return match ? match[1] : null;
   }
 
+  function extractInstagramId(url) {
+    if (!url) return null;
+    const regExp = /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:[a-zA-Z0-9_\.]+\/)?(?:reel|reels|p|tv|share\/r|share\/p)\/([a-zA-Z0-9_-]+)/i;
+    const match = url.trim().match(regExp);
+    return match ? match[1] : null;
+  }
+
   function isSupportedUrl(url) {
-    return !!extractVideoId(url) || !!extractSpotifyId(url);
+    return !!extractVideoId(url) || !!extractSpotifyId(url) || !!extractInstagramId(url);
   }
 
   // --- Drag and Drop Handling ---
@@ -248,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (val) {
       fetchVideoInfo(val);
     } else {
-      showToast('Please enter or drop a YouTube or Spotify link', 'error');
+      showToast('Please enter or drop a YouTube, Spotify, or Instagram link', 'error');
     }
   });
 
@@ -279,8 +286,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function fetchVideoInfo(url) {
     const videoId = extractVideoId(url);
     const spotifyId = extractSpotifyId(url);
-    if (!videoId && !spotifyId) {
-      showToast('Please provide a valid YouTube or Spotify link (e.g. youtu.be, youtube.com, or open.spotify.com/track/...)', 'error');
+    const instagramId = extractInstagramId(url);
+    if (!videoId && !spotifyId && !instagramId) {
+      showToast('Please provide a valid YouTube, Spotify, or Instagram link (e.g. youtu.be, youtube.com, open.spotify.com, or instagram.com/reel/...)', 'error');
       return;
     }
 
@@ -379,13 +387,16 @@ document.addEventListener('DOMContentLoaded', () => {
       // Populate preview card
       previewThumb.src = currentVideoData.thumbnail || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
       previewDuration.textContent = currentVideoData.duration_formatted || 'Ready';
-      editTitle.value = currentVideoData.title || (currentVideoData.platform === 'spotify' ? 'Spotify Track' : 'YouTube Audio');
-      editArtist.value = currentVideoData.author || (currentVideoData.platform === 'spotify' ? 'Spotify Artist' : 'YouTube');
+      editTitle.value = currentVideoData.title || (currentVideoData.platform === 'spotify' ? 'Spotify Track' : (currentVideoData.platform === 'instagram' ? 'Instagram Video' : 'YouTube Audio'));
+      editArtist.value = currentVideoData.author || (currentVideoData.platform === 'spotify' ? 'Spotify Artist' : (currentVideoData.platform === 'instagram' ? 'Instagram' : 'YouTube'));
 
       if (platformBadge) {
         if (currentVideoData.platform === 'spotify') {
           platformBadge.textContent = 'Spotify Track';
           platformBadge.className = 'platform-badge-tag spotify';
+        } else if (currentVideoData.platform === 'instagram') {
+          platformBadge.textContent = 'Instagram Reel/Post';
+          platformBadge.className = 'platform-badge-tag instagram';
         } else {
           platformBadge.textContent = 'YouTube Video';
           platformBadge.className = 'platform-badge-tag youtube';
@@ -487,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
           clearInterval(activePollInterval);
           progressCard.style.display = 'none';
           previewCard.style.display = 'block';
-          
+
           let friendlyMsg = job.error || 'Conversion failed. Please try again.';
           if (friendlyMsg.includes('Sign in to confirm') || friendlyMsg.includes('bot')) {
             friendlyMsg = 'Audio stream could not be loaded. Please try again in a few moments or try another link.';
@@ -652,7 +663,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderHistory(items) {
     if (!items || items.length === 0) {
-      historyList.innerHTML = `<div class="empty-history">No converted songs yet in this session. Drop a YouTube or Spotify link above!</div>`;
+      historyList.innerHTML = `<div class="empty-history">No converted files yet in this session. Drop a YouTube, Spotify, or Instagram link above!</div>`;
       return;
     }
 
@@ -684,7 +695,8 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
         </div>
       </div>
-    `;}).join('');
+    `;
+    }).join('');
 
     // Attach listeners for history action buttons
     document.querySelectorAll('.history-play-btn').forEach(btn => {
@@ -692,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = btn.getAttribute('data-id');
         const fmt = btn.getAttribute('data-format') || 'mp3';
         const streamUrl = `/api/stream/${id}`;
-        
+
         if (fmt === 'mp4') {
           pauseAudio();
           if (audioPlayerBox) audioPlayerBox.style.display = 'none';

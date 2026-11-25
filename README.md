@@ -1,6 +1,6 @@
-# Link2Audio — YouTube & Spotify to MP3 & MP4 Converter 🎵🎬
+# Link2Audio — YouTube, Spotify & Instagram Downloader (MP3 & MP4) 🎵🎬📸
 
-> A modern, high-performance web application to extract, convert, and download YouTube & Spotify content as studio-grade 320kbps MP3 audio or crisp 720p/1080p MP4 HD video.
+> A modern, high-performance web application to extract, convert, and download YouTube videos, Spotify tracks, and Instagram Reels/Posts as studio-grade 320kbps MP3 audio or crisp 720p/1080p MP4 HD video.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-link2mate.onrender.com-ff1a40?style=for-the-badge&logo=render)](https://link2mate.onrender.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)](Dockerfile)
@@ -20,9 +20,14 @@ The application is live and accessible online at:
   - **MP3 Audio**: Studio quality up to 320 kbps (with 256k, 192k, 128k options), custom ID3 tags, and embedded HD album cover artwork.
   - **MP4 Video**: High-definition 720p HD / 1080p Full HD video streams packaged with AAC audio, ready for offline playback on any device.
 
-- **🟢 Dual YouTube & Spotify Support**:
-  - Paste or drag & drop any YouTube video link (`youtube.com`, `youtu.be`, Shorts, YouTube Music) OR Spotify track link (`open.spotify.com/track/...`, `spotify:track:...`, `spotify.link/...`).
-  - Seamlessly extracts metadata, matching Spotify tracks to pristine audio or video streams without requiring Spotify developer keys or user logins.
+- **🔥 Triple Platform Engine: YouTube, Spotify & Instagram**:
+  - **YouTube**: Standard videos, YouTube Shorts, YouTube Music (`youtube.com`, `youtu.be`, `music.youtube.com`).
+  - **Spotify**: Seamlessly matches Spotify tracks (`open.spotify.com/track/...`, `spotify:track:...`) to high-fidelity audio without requiring Spotify developer accounts.
+  - **Instagram**: Public Reels, Posts, Videos, and IGTV (`instagram.com/reel/...`, `instagram.com/p/...`, `instagram.com/share/r/...`). Supports both HD MP4 video download and 320kbps MP3 audio extraction.
+
+- **🛡️ 100% Cookie-Free & Bot-Resistant**:
+  - Powered by high-speed cloud stream clusters and TLS fingerprint browser impersonation (`curl-cffi`).
+  - Zero cookies required, zero user accounts, zero browser extensions. Just paste a link and convert immediately.
 
 - **⚡ Instant Sub-Second Metadata (~150ms)**:
   - Fetches titles, artists, and HD album artwork via ultra-fast public oEmbed & embed resolvers.
@@ -31,16 +36,7 @@ The application is live and accessible online at:
 - **🎛️ Drag & Drop / One-Click Paste**:
   - Drag and drop share links from other browser tabs directly onto the drop zone.
   - Native clipboard paste button (`Paste`) and keyboard shortcut (`Ctrl+V` / `Cmd+V`) support.
-  - Handles all link variations:
-    - Standard watch links (`youtube.com/watch?v=...`)
-    - Shortened links (`youtu.be/...`)
-    - YouTube Shorts (`youtube.com/shorts/...`)
-    - YouTube Music & Mobile (`music.youtube.com/...`, `m.youtube.com/...`)
-
-- **🛡️ High-Speed Cloud Stream Cluster (Zero Cookies Required)**:
-  - Powered by a direct stream resolution architecture (inspired by `y2mate.gs`) that extracts high-speed audio and video streams without getting blocked by YouTube bot checks on cloud datacenter IPs (Render, AWS, GCP).
-  - No cookies, extensions, or sign-ins needed — just drop the link and get your MP3 or MP4 instantly.
-  - Multi-tier cluster failover with local `yt-dlp` fallback guarantees high uptime.
+  - Handles all link variations (standard, shortened, mobile app shares).
 
 - **🧹 100% Ephemeral (Zero Permanent Disk Storage)**:
   - Audio and video files are stored temporarily in volatile system temp memory (`/tmp`).
@@ -56,7 +52,7 @@ The application is live and accessible online at:
 
 - **🏷️ ID3 Tags & HD Cover Art Embedding (MP3)**:
   - Tags MP3 files with Song Title (`TIT2`), Artist (`TPE1`), and Album (`TALB`).
-  - Embeds the YouTube thumbnail as front album cover artwork (`APIC`), displaying seamlessly across Apple Music, Spotify Local Files, iTunes, Android, and car infotainment systems.
+  - Embeds high-resolution cover artwork (`APIC`), displaying seamlessly across Apple Music, Spotify Local Files, iTunes, Android, and car infotainment systems.
 
 - **🎚️ Studio Quality Bitrates**:
   - Select between **320 kbps** (Studio Quality), **256 kbps**, **192 kbps**, or **128 kbps** encoded via FFmpeg (`libmp3lame`).
